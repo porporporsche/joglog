@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1a17">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ジョグログ">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>ジョグログ</title>
+<style>
+/* 1画面のランニングメーター。上に大きな距離、下に操作、その下に履歴 */
+:root{
+  --bg:#f3f6f4; --surface:#ffffff; --fg:#14211d; --muted:#5d6f69; --line:#d9e2de;
+  --accent:#0c8a6a; --accent-fg:#ffffff; --warn:#c2410c; --track:#0c8a6a;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1a17; --surface:#16241f; --fg:#e6f0ec; --muted:#93a8a0; --line:#25372f;
+  --accent:#2fd3a4; --accent-fg:#06231a; --warn:#fb923c; --track:#2fd3a4; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;
+  padding:env(safe-area-inset-top,0) max(16px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.wrap{max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:16px;padding-top:12px}
+header{display:flex;justify-content:space-between;align-items:center}
+h1{font-size:17px;margin:0;letter-spacing:.04em}
+.gps{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--line)}
+.dot.ok{background:var(--accent)} .dot.bad{background:var(--warn)}
+.meter{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 16px;display:flex;flex-direction:column;gap:14px}
+.big{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:64px;font-weight:700;line-height:1;letter-spacing:-.02em}
+.big small{font-size:20px;font-weight:500;color:var(--muted);margin-left:6px}
+.row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat .k{font-size:11px;color:var(--muted);letter-spacing:.08em}
+.stat .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;margin-top:2px}
+canvas{width:100%;height:180px;border-radius:10px;background:var(--bg);display:block}
+.btns{display:flex;gap:10px}
+button{font:inherit;font-weight:700;border:0;border-radius:12px;padding:16px;flex:1;cursor:pointer;background:var(--surface);color:var(--fg);border:1px solid var(--line)}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button.danger{color:var(--warn)}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.msg{font-size:13px;color:var(--warn);min-height:1em}
+h2{font-size:13px;color:var(--muted);letter-spacing:.08em;margin:8px 0 0}
+ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+li{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:12px 2px;border-bottom:1px solid var(--line)}
+li .d{font-size:12px;color:var(--muted)}
+li .n{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600}
+li .a{grid-row:span 2;display:flex;gap:6px;align-items:center}
+li .a button{padding:8px 10px;font-size:12px;font-weight:600;flex:none}
+.empty{color:var(--muted);font-size:13px;padding:12px 2px}
+.total{font-size:13px;color:var(--muted)}
+.confirm{display:flex;gap:8px;align-items:center;font-size:13px}
+.histhead{display:flex;justify-content:space-between;align-items:flex-end;gap:8px}
+button.small{flex:none;padding:8px 12px;font-size:13px}
+.mtitle{font-weight:700}
+.tools{display:flex;gap:8px;flex-wrap:wrap}
+.tools > *{flex:1 1 140px}
+.filebtn{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:700;border:1px solid var(--line);border-radius:12px;padding:16px;cursor:pointer;background:var(--surface)}
+.filebtn input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.filebtn:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+#lmap{height:320px;border-radius:10px;border:1px solid var(--line);background:var(--bg)}
+.maptools{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.maptools button{padding:10px;font-size:13px;flex:1 1 auto}
+button:disabled{opacity:.45;cursor:default}
+.seg{display:flex;margin-top:8px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:10px;font-size:13px;font-weight:600}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-fg)}
+.vpt{background:var(--surface);border:3px solid var(--accent);border-radius:50%;box-sizing:border-box}
+.vpt.start,.vpt.end{background:var(--accent)}
+.vpt.sel{background:var(--warn);border-color:var(--warn);box-shadow:0 0 0 4px rgba(194,65,12,.35)}
+.hint{font-size:12px;color:var(--muted);margin:6px 0 0}
+.form{display:flex;flex-direction:column;gap:12px}
+.form label,.form .lbl{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.form input{font:inherit;font-size:16px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;width:100%;min-width:0}
+.hms{display:flex;align-items:center;gap:6px;color:var(--fg);font-size:14px}
+.hms input{width:4.5em;flex:none;text-align:right;font-family:var(--mono)}
+.tag{font-size:11px;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:0 6px;margin-left:4px}
+.leaflet-container{font:12px var(--sans)}
+.io{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.io > *{flex:1 1 140px;padding:12px;font-size:14px}
+.msg.ok{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>ジョグログ</h1>
+    <div class="gps"><span class="dot" id="gpsDot"></span><span id="gpsTxt">GPS待機中</span></div>
+  </header>
+
+  <section class="meter">
+    <div class="big" id="dist">0.00<small>km</small></div>
+    <div class="row">
+      <div class="stat"><div class="k">時間</div><div class="v" id="time">0:00:00</div></div>
+      <div class="stat"><div class="k">平均ペース</div><div class="v" id="pace">--'--"</div></div>
+      <div class="stat"><div class="k">速度</div><div class="v" id="speed">0.0</div></div>
+    </div>
+    <canvas id="map" aria-label="走行ルート"></canvas>
+    <div class="btns" id="btns"></div>
+    <div class="msg" id="msg"></div>
+  </section>
+
+  <div class="histhead"><h2>履歴</h2><button class="small" id="addBtn">＋ あとから追加</button></div>
+
+  <section class="meter" id="manual" hidden>
+    <div class="mtitle" id="mTitle">あとから記録を追加</div>
+    <div class="tools">
+      <button id="mapBtn">地図でルートを描く</button>
+      <label class="filebtn">GPX / KML を読み込む<input type="file" id="fileIn" accept=".gpx,.kml,.xml,application/gpx+xml,application/vnd.google-earth.kml+xml,text/xml,application/xml"></label>
+    </div>
+    <div id="mapWrap" hidden>
+      <div id="lmap"></div>
+      <div class="seg" role="group" aria-label="タップしたときの動作">
+        <button id="modeEnd" aria-pressed="true">タップで末尾に追加</button>
+        <button id="modeIns" aria-pressed="false">タップで途中に挿入</button>
+      </div>
+      <div class="maptools"><button id="undoPt">1つ戻す</button><button id="delPt" disabled>選んだ点を削除</button><button id="clearPt">全部消す</button><button id="hereBtn">現在地へ</button></div>
+      <p class="hint">地図をタップすると点が増えます。点はドラッグで動かせ、タップで選ぶと削除できます。「途中に挿入」にすると、タップした場所にいちばん近い区間に点が入ります。</p>
+    </div>
+    <div class="form">
+      <label for="fStart">開始日時<input type="datetime-local" id="fStart"></label>
+      <label for="fDist">距離 (km)<input type="number" id="fDist" step="0.01" min="0" inputmode="decimal" placeholder="ルートを描くと自動で入ります"></label>
+      <div class="lbl">時間
+        <span class="hms"><input type="number" id="fH" min="0" inputmode="numeric" placeholder="0" aria-label="時間">時間<input type="number" id="fM" min="0" max="59" inputmode="numeric" placeholder="0" aria-label="分">分<input type="number" id="fS" min="0" max="59" inputmode="numeric" placeholder="0" aria-label="秒">秒</span>
+      </div>
+    </div>
+    <div class="msg" id="mMsg"></div>
+    <div class="btns"><button class="primary" id="mSave">履歴に保存</button><button id="mCancel">やめる</button></div>
+  </section>
+
+  <div class="total" id="total"></div>
+  <ul id="hist"></ul>
+
+  <div class="io">
+    <button id="expBtn">履歴を書き出す</button>
+    <label class="filebtn">履歴を読み込む<input type="file" id="impIn" accept=".json,application/json"></label>
+  </div>
+  <div class="msg" id="hMsg"></div>
+  <p class="hint">機種変更やブラウザを替えるときは、「履歴を書き出す」で保存したファイルを、移行先で「履歴を読み込む」から選んでください。今ある記録は消えず、同じ記録は重複しません。</p>
+  <p class="hint" id="swStatus"></p>
+</div>
+
+<script>
+(()=>{
+const KEY_H='joglog.history.v1', KEY_CUR='joglog.current.v1';
+const MAX_ACC=35;      // これより精度が悪い測位は捨てる (m)
+const MIN_STEP=4;      // これ未満の移動はGPSの揺れとみなす (m)
+const MAX_SPEED=12;    // これを超える瞬間速度は飛びとみなす (m/s)
+
+const $=id=>document.getElementById(id);
+const load=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}};
+const save=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const del=k=>{try{localStorage.removeItem(k)}catch(e){}};
+
+let history=load(KEY_H,[]);
+// run: {start, pts:[[lat,lon,t]], dist, activeMs, segStart|null, state:'run'|'pause'}
+let run=load(KEY_CUR,null);
+let watchId=null, wake=null, tick=null, lastFix=null;
+
+function hav(a,b){const R=6371000,r=Math.PI/180;
+  const dLa=(b[0]-a[0])*r,dLo=(b[1]-a[1])*r;
+  const h=Math.sin(dLa/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dLo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));}
+const elapsed=()=>!run?0:run.activeMs+(run.state==='run'&&run.segStart?Date.now()-run.segStart:0);
+function fmtT(ms){const s=Math.floor(ms/1000);return `${Math.floor(s/3600)}:${String(Math.floor(s/60)%60).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`}
+function fmtP(ms,m){if(m<50)return `--'--"`;const spk=ms/1000/(m/1000);if(!isFinite(spk)||spk>5999)return `--'--"`;
+  return `${Math.floor(spk/60)}'${String(Math.round(spk%60)).padStart(2,'0')}"`}
+
+function onPos(p){
+  const c=p.coords; lastFix=Date.now();
+  const ok=c.accuracy<=MAX_ACC;
+  $('gpsDot').className='dot '+(ok?'ok':'bad');
+  $('gpsTxt').textContent=`精度 ±${Math.round(c.accuracy)}m`;
+  if(!run||run.state!=='run'||!ok)return;
+  const pt=[+c.latitude.toFixed(6),+c.longitude.toFixed(6),p.timestamp];
+  const last=run.pts[run.pts.length-1];
+  if(last && !last[3]){ // 同じ区間の続き
+    const d=hav(last,pt), dt=(pt[2]-last[2])/1000;
+    if(d<Math.max(MIN_STEP,c.accuracy*0.5))return;
+    if(dt>0&&d/dt>MAX_SPEED)return;
+    run.dist+=d;
+  }
+  run.pts.push(pt); save(KEY_CUR,run); draw();
+}
+function onErr(e){
+  const m={1:'位置情報の利用が許可されていません。ブラウザの設定で許可してください。',2:'現在地を取得できません。空が見える場所に移動してください。',3:'GPSの応答待ちです…'};
+  $('msg').textContent=m[e.code]||e.message;
+  $('gpsDot').className='dot bad';
+}
+function startWatch(){
+  if(!('geolocation' in navigator)){$('msg').textContent='このブラウザは位置情報に対応していません。';return}
+  if(watchId===null) watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+}
+function stopWatch(){if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null}}
+async function lock(){try{if('wakeLock' in navigator&&!wake){wake=await navigator.wakeLock.request('screen');wake.addEventListener('release',()=>wake=null)}}catch(e){}}
+function unlock(){try{wake&&wake.release()}catch(e){}wake=null}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&run&&run.state==='run')lock()});
+
+function start(){
+  $('msg').textContent='';
+  run={start:Date.now(),pts:[],dist:0,activeMs:0,segStart:Date.now(),state:'run'};
+  save(KEY_CUR,run); startWatch(); lock(); render();
+}
+function pause(){
+  run.activeMs+=Date.now()-run.segStart; run.segStart=null; run.state='pause';
+  const l=run.pts[run.pts.length-1]; if(l)l[3]=1; // 次の点とは繋げない
+  save(KEY_CUR,run); unlock(); render();
+}
+function resume(){run.segStart=Date.now();run.state='run';save(KEY_CUR,run);startWatch();lock();render()}
+function finish(){
+  if(run.state==='run'){run.activeMs+=Date.now()-run.segStart}
+  history.unshift({start:run.start,dist:Math.round(run.dist),ms:run.activeMs,pts:run.pts});
+  save(KEY_H,history); del(KEY_CUR); run=null; stopWatch(); unlock(); render();
+}
+function discard(){run=null;del(KEY_CUR);stopWatch();unlock();render()}
+
+let askDiscard=false;
+function renderBtns(){
+  const b=$('btns'); b.innerHTML='';
+  const mk=(t,cls,fn)=>{const e=document.createElement('button');e.textContent=t;e.className=cls||'';e.onclick=fn;b.appendChild(e)};
+  if(!run){mk('スタート','primary',start);return}
+  if(askDiscard){mk('記録を破棄','danger',()=>{askDiscard=false;discard()});mk('やめる','',()=>{askDiscard=false;renderBtns()});return}
+  if(run.state==='run'){mk('一時停止','',pause);mk('終了して保存','primary',finish)}
+  else{mk('再開','primary',resume);mk('終了して保存','',finish);mk('破棄','danger',()=>{askDiscard=true;renderBtns()})}
+}
+function renderLive(){
+  const ms=elapsed(), m=run?run.dist:0;
+  $('dist').innerHTML=(m/1000).toFixed(2)+'<small>km</small>';
+  $('time').textContent=fmtT(ms);
+  $('pace').textContent=fmtP(ms,m);
+  $('speed').textContent=ms>0?(m/1000/(ms/3600000)).toFixed(1):'0.0';
+  if(lastFix&&Date.now()-lastFix>15000&&run&&run.state==='run'){$('gpsDot').className='dot bad';$('gpsTxt').textContent='GPS信号待ち'}
+}
+function draw(){
+  const cv=$('map'),dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+  cv.width=w*dpr;cv.height=h*dpr;const g=cv.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,w,h);
+  const cs=getComputedStyle(document.documentElement);
+  const pts=run?run.pts:[];
+  if(pts.length<2){g.fillStyle=cs.getPropertyValue('--muted');g.font='13px sans-serif';g.textAlign='center';
+    g.fillText(run?'GPSで位置を取得するとルートが表示されます':'スタートすると走ったルートを描きます',w/2,h/2);return}
+  let la0=Infinity,la1=-Infinity,lo0=Infinity,lo1=-Infinity;
+  pts.forEach(p=>{la0=Math.min(la0,p[0]);la1=Math.max(la1,p[0]);lo0=Math.min(lo0,p[1]);lo1=Math.max(lo1,p[1])});
+  const k=Math.cos((la0+la1)/2*Math.PI/180), pad=14;
+  const sx=(lo1-lo0)*k||1e-5, sy=(la1-la0)||1e-5, s=Math.min((w-2*pad)/sx,(h-2*pad)/sy);
+  const ox=(w-sx*s)/2, oy=(h-sy*s)/2;
+  const X=p=>ox+(p[1]-lo0)*k*s, Y=p=>h-oy-(p[0]-la0)*s;
+  g.strokeStyle=cs.getPropertyValue('--track');g.lineWidth=3.5;g.lineJoin=g.lineCap='round';g.beginPath();
+  pts.forEach((p,i)=>{const pr=pts[i-1];if(i===0||(pr&&pr[3]))g.moveTo(X(p),Y(p));else g.lineTo(X(p),Y(p))});g.stroke();
+  const e=pts[pts.length-1];g.fillStyle=cs.getPropertyValue('--fg');g.beginPath();g.arc(X(e),Y(e),5,0,7);g.fill();
+}
+function renderHist(){
+  const ul=$('hist');ul.innerHTML='';
+  if(!history.length){ul.innerHTML='<li class="empty" style="display:block">まだ記録はありません。</li>';$('total').textContent='';return}
+  const tot=history.reduce((a,r)=>a+r.dist,0);
+  $('total').textContent=`${history.length}回・合計 ${(tot/1000).toFixed(2)} km`;
+  history.forEach((r,i)=>{
+    const li=document.createElement('li'), d=new Date(r.start);
+    const ds=`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+    li.innerHTML=`<div class="n">${(r.dist/1000).toFixed(2)} km ・ ${fmtT(r.ms)}</div>
+      <div class="a"></div><div class="d">${ds} ・ ペース ${fmtP(r.ms,r.dist)}/km${r.manual?'<span class="tag">あとから</span>':''}${r.edited?'<span class="tag">編集済み</span>':''}</div>`;
+    const a=li.querySelector('.a');
+    const ed=document.createElement('button');ed.textContent='編集';ed.onclick=()=>openManual(r);a.append(ed);
+    const gpx=document.createElement('button');gpx.textContent='GPX';gpx.onclick=()=>exportGpx(r);
+    gpx.disabled=!(r.pts&&r.pts.length>1);
+    const rm=document.createElement('button');rm.textContent='削除';rm.className='danger';
+    rm.onclick=()=>{a.innerHTML='';const y=document.createElement('button');y.textContent='削除する';y.className='danger';
+      y.onclick=()=>{if(mEdit===r)closeManual();history.splice(i,1);save(KEY_H,history);renderHist()};
+      const n=document.createElement('button');n.textContent='戻す';n.onclick=renderHist;a.append(y,n)};
+    a.append(gpx,rm);ul.appendChild(li);
+  });
+}
+function exportGpx(r){
+  let segs=[[]];r.pts.forEach(p=>{segs[segs.length-1].push(p);if(p[3])segs.push([])});
+  const body=segs.filter(s=>s.length).map(s=>'<trkseg>'+s.map(p=>`<trkpt lat="${p[0]}" lon="${p[1]}"><time>${new Date(p[2]).toISOString()}</time></trkpt>`).join('')+'</trkseg>').join('');
+  const x=`<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="JogLog" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Jog ${new Date(r.start).toISOString()}</name>${body}</trk></gpx>`;
+  saveFile(`jog-${stamp(new Date(r.start))}.gpx`,x,'application/gpx+xml');
+}
+const stamp=d=>`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}`;
+/* ファイル保存：ホーム画面アプリとして開いているときは共有シート、それ以外は通常のダウンロード */
+async function saveFile(name,text,type){
+  const blob=new Blob([text],{type});
+  const standalone=window.navigator.standalone||matchMedia('(display-mode: standalone)').matches;
+  if(standalone&&navigator.canShare){
+    try{const f=new File([blob],name,{type});if(navigator.canShare({files:[f]})){await navigator.share({files:[f]});return true}}
+    catch(e){if(e&&e.name==='AbortError')return false}
+  }
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  return true;
+}
+
+/* ---------- 履歴の書き出し・読み込み（機種変更などの移行用） ---------- */
+const hmsg=(t,bad)=>{const m=$('hMsg');m.textContent=t||'';m.className='msg'+(bad?'':' ok')};
+async function exportHistory(){
+  if(!history.length)return hmsg('書き出す記録がありません。',true);
+  const data={app:'JogLog',version:1,exportedAt:new Date().toISOString(),count:history.length,history};
+  const ok=await saveFile(`joglog-backup-${stamp(new Date())}.json`,JSON.stringify(data),'application/json');
+  if(ok)hmsg(`${history.length}件の記録を書き出しました。移行先の端末で「履歴を読み込む」から選んでください。`);
+}
+function validRecord(r){
+  if(!r||typeof r!=='object')return null;
+  const start=+r.start,dist=+r.dist,ms=+r.ms;
+  if(!isFinite(start)||!isFinite(dist)||!isFinite(ms)||dist<0||ms<0)return null;
+  const pts=Array.isArray(r.pts)?r.pts.filter(p=>Array.isArray(p)&&isFinite(p[0])&&isFinite(p[1])).map(p=>{
+    const q=[+p[0],+p[1],isFinite(p[2])&&p[2]!==null?+p[2]:null];if(p[3])q[3]=1;return q}):[];
+  const out={start,dist:Math.round(dist),ms:Math.round(ms),pts};
+  if(r.manual)out.manual=true;if(r.edited)out.edited=true;
+  return out;
+}
+async function importHistory(e){
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  let data;
+  try{data=JSON.parse(await f.text())}catch(err){return hmsg('このファイルは読み込めません。ジョグログで書き出したファイル（.json）を選んでください。',true)}
+  const list=Array.isArray(data)?data:data&&Array.isArray(data.history)?data.history:null;
+  if(!list)return hmsg('ジョグログの履歴ファイルではないようです。',true);
+  const have=new Set(history.map(r=>r.start));
+  let added=0,dup=0,bad=0;
+  list.forEach(raw=>{const r=validRecord(raw);
+    if(!r){bad++;return}
+    if(have.has(r.start)){dup++;return}
+    history.push(r);have.add(r.start);added++});
+  history.sort((a,b)=>b.start-a.start);
+  save(KEY_H,history);renderHist();
+  hmsg(`${added}件を追加しました。`+(dup?`同じ記録${dup}件は重複のため飛ばしました。`:'')+(bad?`壊れていた${bad}件は読み込めませんでした。`:''),!added&&!dup);
+}
+function render(){renderBtns();renderLive();draw();renderHist()}
+
+/* ---------- あとから追加・編集 ---------- */
+let mPts=[], mUndo=[], mEdit=null, mSel=-1, mMode='end', lmap=null, lline=null, lhandles=null;
+const pad2=n=>String(n).padStart(2,'0');
+const toLocal=d=>`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const mmsg=t=>{$('mMsg').textContent=t||''};
+const accent=()=>getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+function routeDist(pts){let s=0;for(let i=1;i<pts.length;i++){if(!pts[i-1][3])s+=hav(pts[i-1],pts[i])}return s}
+function segments(pts){const out=[[]];pts.forEach(p=>{out[out.length-1].push([p[0],p[1]]);if(p[3])out.push([])});return out.filter(s=>s.length)}
+function snapshot(){mUndo.push(JSON.stringify(mPts));if(mUndo.length>100)mUndo.shift();$('undoPt').disabled=false}
+function setDuration(ms){const s=Math.round(ms/1000);$('fH').value=Math.floor(s/3600);$('fM').value=Math.floor(s/60)%60;$('fS').value=s%60}
+
+function openManual(rec){
+  mEdit=rec&&rec.start?rec:null; mUndo=[]; mSel=-1; mmsg('');
+  $('manual').hidden=false; $('fileIn').value='';
+  if(mEdit){
+    mPts=(mEdit.pts||[]).map(p=>p.slice());
+    $('mTitle').textContent='記録を編集';$('mSave').textContent='変更を保存';
+    $('fStart').value=toLocal(new Date(mEdit.start));
+    $('fDist').value=(mEdit.dist/1000).toFixed(2); setDuration(mEdit.ms);
+    openMap();
+  }else{
+    mPts=[];
+    $('mTitle').textContent='あとから記録を追加';$('mSave').textContent='履歴に保存';
+    $('fStart').value=toLocal(new Date(Date.now()-3600000));
+    ['fDist','fH','fM','fS'].forEach(id=>$(id).value='');
+    $('mapWrap').hidden=true;
+  }
+  refreshLayers(); updateTools();
+  $('manual').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function closeManual(){$('manual').hidden=true;mPts=[];mEdit=null;mSel=-1;mmsg('')}
+function updateTools(){$('delPt').disabled=mSel<0;$('undoPt').disabled=!mUndo.length;$('clearPt').disabled=!mPts.length}
+function onRouteChanged(){
+  $('fDist').value=mPts.length>1?(routeDist(mPts)/1000).toFixed(2):(mEdit?$('fDist').value:'');
+  refreshLayers(); updateTools();
+}
+
+/* 点が多いGPS記録は、形を保つ代表点だけを操作用に表示する */
+function proj(p,k){return [p[1]*111320*k,p[0]*110540]}
+function handleIdx(pts){
+  const n=pts.length; if(n<=300)return pts.map((_,i)=>i);
+  const k=Math.cos(pts[0][0]*Math.PI/180), xy=pts.map(p=>proj(p,k));
+  const segR=[];let s=0;pts.forEach((p,i)=>{if(p[3]||i===n-1){segR.push([s,i]);s=i+1}});
+  for(let eps=3;;eps*=1.6){
+    const keep=new Set();
+    segR.forEach(([a,b])=>{keep.add(a);keep.add(b);const st=[[a,b]];
+      while(st.length){const [i,j]=st.pop();let m=-1,md=eps;
+        for(let q=i+1;q<j;q++){const d=segD(xy[q],xy[i],xy[j]);if(d>md){md=d;m=q}}
+        if(m>0){keep.add(m);st.push([i,m],[m,j])}}});
+    if(keep.size<=300)return [...keep].sort((a,b)=>a-b);
+  }
+}
+function segD(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],L2=dx*dx+dy*dy;
+  let t=L2?((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L2:0;t=Math.max(0,Math.min(1,t));
+  return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy)}
+function nearestSeg(pt){
+  const k=Math.cos(pt[0]*Math.PI/180),P=proj(pt,k);let best=-1,bd=Infinity;
+  for(let i=0;i<mPts.length-1;i++){if(mPts[i][3])continue;
+    const d=segD(P,proj(mPts[i],k),proj(mPts[i+1],k));if(d<bd){bd=d;best=i}}
+  return best;
+}
+
+function refreshLayers(){
+  if(!lmap)return;
+  lline.setLatLngs(segments(mPts)); lhandles.clearLayers();
+  const n=mPts.length;
+  handleIdx(mPts).forEach(i=>{
+    const p=mPts[i], cls='vpt'+(i===0?' start':i===n-1?' end':'')+(i===mSel?' sel':'');
+    const mk=L.marker([p[0],p[1]],{draggable:true,icon:L.divIcon({className:cls,iconSize:[22,22]})}).addTo(lhandles);
+    mk.on('click',()=>{mSel=mSel===i?-1:i;refreshLayers();updateTools()});
+    mk.on('dragstart',snapshot);
+    mk.on('drag',e=>{const ll=e.target.getLatLng();mPts[i][0]=+ll.lat.toFixed(6);mPts[i][1]=+ll.lng.toFixed(6);lline.setLatLngs(segments(mPts))});
+    mk.on('dragend',()=>{mPts[i][2]=null;onRouteChanged()});
+  });
+}
+function fitRoute(){if(lmap&&mPts.length>1)lmap.fitBounds(L.latLngBounds(mPts.map(p=>[p[0],p[1]])),{padding:[24,24]});
+  else if(lmap&&mPts.length===1)lmap.setView([mPts[0][0],mPts[0][1]],16)}
+
+/* 地図部品は配信元を3か所用意し、CSSとJSの両方が読み終わってから地図を作る */
+const LEAFLET_CDNS=[
+  ['https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js','https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'],
+  ['https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js','https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'],
+  ['https://unpkg.com/leaflet@1.9.4/dist/leaflet.js','https://unpkg.com/leaflet@1.9.4/dist/leaflet.css']];
+function loadTag(kind,url){
+  return new Promise((res,rej)=>{
+    const el=document.createElement(kind);
+    if(kind==='link'){el.rel='stylesheet';el.href=url}else el.src=url;
+    const t=setTimeout(()=>{el.remove();rej()},10000);
+    el.onload=()=>{clearTimeout(t);res()};el.onerror=()=>{clearTimeout(t);el.remove();rej()};
+    document.head.appendChild(el);
+  });
+}
+let cssOk=false;
+async function loadLeaflet(){
+  for(const [js,css] of LEAFLET_CDNS){
+    try{
+      await Promise.all([cssOk?null:loadTag('link',css).then(()=>cssOk=true),window.L?null:loadTag('script',js)]);
+      if(window.L&&cssOk)return;
+    }catch(e){}
+  }
+  throw new Error('leaflet');
+}
+/* 地図画像：国土地理院（参照元なしでも表示できる）を基本に、だめならOSMへ切り替え */
+function addTiles(map){
+  const gsi=L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{maxZoom:18,attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>'});
+  const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'});
+  let loaded=0,failed=0,switched=false;
+  const watch=layer=>{
+    layer.on('tileload',()=>{loaded++;if($('mMsg').textContent.startsWith('地図の画像'))mmsg('')});
+    layer.on('tileerror',()=>{failed++;
+      if(!loaded&&failed>=4){
+        if(!switched){switched=true;failed=0;map.removeLayer(gsi);osm.addTo(map)}
+        else mmsg('地図の画像を読み込めません。電波の状態を確認してください。ClaudeアプリやファイルアプリのプレビューではなくSafariかChromeで開いてください。');
+      }});
+  };
+  watch(gsi);watch(osm);
+  gsi.addTo(map);
+  L.control.layers({'地理院地図':gsi,'OpenStreetMap':osm},null,{position:'topright'}).addTo(map);
+}
+async function openMap(){
+  $('mapWrap').hidden=false;
+  if(lmap){setTimeout(()=>{lmap.invalidateSize();fitRoute();refreshLayers()},0);return}
+  mmsg('地図を読み込んでいます…');
+  try{await loadLeaflet()}catch(e){
+    $('mapWrap').hidden=true;
+    mmsg('地図を読み込めませんでした。電波のある場所で、SafariかChromeで開き直してください（アプリ内のプレビューでは地図が使えません）。距離と時間は直接入力して保存できます。');return}
+  mmsg('');
+  const lastRun=history.find(r=>r.pts&&r.pts.length);
+  const c=lastRun?lastRun.pts[0]:[35.6812,139.7671];
+  lmap=L.map('lmap',{maxZoom:19}).setView([c[0],c[1]],16);
+  addTiles(lmap);
+  // 表示直後は枠の大きさが確定していないことがあるので測り直す
+  setTimeout(()=>{lmap.invalidateSize();if(mPts.length)fitRoute()},250);
+  if(window.ResizeObserver)new ResizeObserver(()=>lmap.invalidateSize()).observe($('lmap'));
+  lline=L.polyline([],{color:accent(),weight:5,opacity:.85}).addTo(lmap);
+  lhandles=L.layerGroup().addTo(lmap);
+  lmap.on('click',e=>{
+    snapshot();
+    const pt=[+e.latlng.lat.toFixed(6),+e.latlng.lng.toFixed(6),null];
+    const i=mMode==='ins'&&mPts.length>1?nearestSeg(pt):-1;
+    if(i>=0)mPts.splice(i+1,0,pt);else mPts.push(pt);
+    mSel=-1;onRouteChanged();
+  });
+  refreshLayers();
+  if(mPts.length)fitRoute();else if(!lastRun)goHere();
+}
+function goHere(){
+  if(!lmap||!navigator.geolocation)return;
+  navigator.geolocation.getCurrentPosition(p=>lmap.setView([p.coords.latitude,p.coords.longitude],16),()=>{},{enableHighAccuracy:false,timeout:10000,maximumAge:600000});
+}
+function setMode(m){mMode=m;$('modeEnd').setAttribute('aria-pressed',m==='end');$('modeIns').setAttribute('aria-pressed',m==='ins')}
+function delSelected(){
+  if(mSel<0)return; snapshot();
+  const [p]=mPts.splice(mSel,1);
+  if(p[3]&&mSel>0)mPts[mSel-1][3]=1;
+  if(mPts.length)delete mPts[mPts.length-1][3];
+  mSel=-1;onRouteChanged();
+}
+
+function parseRoute(text){
+  const xml=new DOMParser().parseFromString(text,'application/xml');
+  if(xml.getElementsByTagName('parsererror').length)throw new Error('ファイルを読み取れませんでした。');
+  const pts=[];
+  const segs=[...xml.getElementsByTagName('trkseg')];
+  const gpxGroups=segs.length?segs.map(s=>[...s.getElementsByTagName('trkpt')]):[[...xml.getElementsByTagName('rtept')]];
+  gpxGroups.forEach(g=>{
+    g.forEach(n=>{const t=n.getElementsByTagName('time')[0];
+      pts.push([+(+n.getAttribute('lat')).toFixed(6),+(+n.getAttribute('lon')).toFixed(6),t?Date.parse(t.textContent):null])});
+    if(pts.length)pts[pts.length-1][3]=1;
+  });
+  if(!pts.length){
+    const gx=[...xml.getElementsByTagNameNS('*','coord')], when=[...xml.getElementsByTagNameNS('*','when')];
+    if(gx.length){gx.forEach((n,i)=>{const [lo,la]=n.textContent.trim().split(/\s+/).map(Number);
+      pts.push([+la.toFixed(6),+lo.toFixed(6),when[i]?Date.parse(when[i].textContent):null])});pts[pts.length-1][3]=1}
+    else{[...xml.getElementsByTagName('coordinates')].forEach(n=>{
+      const cs=n.textContent.trim().split(/\s+/).map(s=>s.split(',').map(Number)).filter(a=>a.length>=2&&!isNaN(a[0]));
+      if(cs.length<2)return;
+      cs.forEach(a=>pts.push([+a[1].toFixed(6),+a[0].toFixed(6),null]));pts[pts.length-1][3]=1;
+    })}
+  }
+  const clean=pts.filter(p=>isFinite(p[0])&&isFinite(p[1]));
+  if(clean.length<2)throw new Error('ルート（線）が見つかりませんでした。');
+  delete clean[clean.length-1][3];
+  return clean.map(p=>{if(p.length===4&&!p[3])p.length=3;return p});
+}
+async function onFile(e){
+  const f=e.target.files[0]; if(!f)return;
+  try{
+    const pts=parseRoute(await f.text());
+    snapshot(); mPts=pts; mSel=-1; onRouteChanged();
+    const t0=mPts[0][2], t1=mPts[mPts.length-1][2], timed=t0&&t1&&t1>t0;
+    if(timed){$('fStart').value=toLocal(new Date(t0));setDuration(t1-t0)}
+    mmsg(`${mPts.length}地点を読み込みました。`+(timed?'':'時間は手で入力してください。'));
+    if(lmap){$('mapWrap').hidden=false;setTimeout(()=>{lmap.invalidateSize();fitRoute()},0)}
+  }catch(err){mmsg(err.message||'読み込みに失敗しました。')}
+  e.target.value='';
+}
+
+/* 時刻のない点（追加・移動した点）に時刻を補う */
+function retime(pts,start,ms,km){
+  const known=pts.map((p,i)=>p[2]?i:-1).filter(i=>i>=0);
+  const cum=[0];for(let i=1;i<pts.length;i++)cum[i]=cum[i-1]+(pts[i-1][3]?0:hav(pts[i-1],pts[i]));
+  if(!known.length){const tot=cum[cum.length-1]||1;pts.forEach((p,i)=>p[2]=Math.round(start+ms*cum[i]/tot));return}
+  const v=km*1000/(ms/1000)||3; // m/s
+  for(let i=0;i<pts.length;i++){
+    if(pts[i][2])continue;
+    const a=known.filter(k=>k<i).pop(), b=known.find(k=>k>i);
+    if(a!==undefined&&b!==undefined){const span=cum[b]-cum[a]||1;pts[i][2]=Math.round(pts[a][2]+(pts[b][2]-pts[a][2])*(cum[i]-cum[a])/span)}
+    else if(a!==undefined)pts[i][2]=Math.round(pts[a][2]+(cum[i]-cum[a])/v*1000);
+    else pts[i][2]=Math.round(pts[b][2]-(cum[b]-cum[i])/v*1000);
+  }
+  for(let i=1;i<pts.length;i++)if(pts[i][2]<pts[i-1][2])pts[i][2]=pts[i-1][2];
+}
+
+function saveManual(){
+  const sv=$('fStart').value;
+  const start=mEdit&&sv===toLocal(new Date(mEdit.start))?mEdit.start:new Date(sv).getTime();
+  const km=parseFloat($('fDist').value);
+  const ms=((+$('fH').value||0)*3600+(+$('fM').value||0)*60+(+$('fS').value||0))*1000;
+  if(!isFinite(start))return mmsg('開始日時を入れてください。');
+  if(!(km>0))return mmsg('距離を入れるか、地図でルートを描いてください。');
+  if(!(ms>0))return mmsg('かかった時間を入れてください。');
+  const pts=mPts.length>1?mPts.map(p=>p.slice()):[];
+  if(pts.length){
+    const timingChanged=mEdit&&(start!==mEdit.start||ms!==mEdit.ms);
+    if(timingChanged)pts.forEach(p=>p[2]=null);
+    retime(pts,start,ms,km);
+  }
+  const rec={start,dist:Math.round(km*1000),ms,pts};
+  if(mEdit){Object.assign(mEdit,rec,{edited:true})}
+  else history.push(Object.assign(rec,{manual:true}));
+  history.sort((a,b)=>b.start-a.start);
+  save(KEY_H,history); closeManual(); renderHist();
+}
+
+/* 圏外でも起動できるようにする（https で開いたときだけ有効） */
+if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    navigator.serviceWorker.ready.then(()=>{$('swStatus').textContent='オフライン起動に対応済みです。圏外でもホーム画面から開けます。'});
+    reg.addEventListener('updatefound',()=>{const w=reg.installing;if(!w)return;
+      w.addEventListener('statechange',()=>{if(w.state==='activated'&&navigator.serviceWorker.controller)$('swStatus').textContent='新しい版を受け取りました。次に開いたときから反映されます。'})});
+  }).catch(()=>{$('swStatus').textContent='オフライン起動の準備ができませんでした。電波のある場所で開き直してください。'});
+}else{$('swStatus').textContent='オフライン起動は、https のページ（GitHub Pages など）で開いたときに使えます。'}
+
+$('addBtn').onclick=()=>openManual();
+$('expBtn').onclick=exportHistory;
+$('impIn').onchange=importHistory;
+$('mCancel').onclick=closeManual;
+$('mSave').onclick=saveManual;
+$('mapBtn').onclick=openMap;
+$('fileIn').onchange=onFile;
+$('undoPt').onclick=()=>{if(!mUndo.length)return;mPts=JSON.parse(mUndo.pop());mSel=-1;onRouteChanged()};
+$('delPt').onclick=delSelected;
+$('clearPt').onclick=()=>{if(!mPts.length)return;snapshot();mPts=[];mSel=-1;onRouteChanged()};
+$('hereBtn').onclick=goHere;
+$('modeEnd').onclick=()=>setMode('end');
+$('modeIns').onclick=()=>setMode('ins');
+
+// 途中で閉じても続きから再開できるように
+if(run){if(run.state==='run'){startWatch();lock()}$('msg').textContent='前回の記録の続きです。'}
+render();
+tick=setInterval(renderLive,1000);
+window.addEventListener('resize',draw);
+})();
+</script>
+</body>
+</html>
