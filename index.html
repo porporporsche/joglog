@@ -25,6 +25,7 @@
   --bg:#0f1a17; --surface:#16241f; --fg:#e6f0ec; --muted:#93a8a0; --line:#25372f;
   --accent:#2fd3a4; --accent-fg:#06231a; --warn:#fb923c; --track:#2fd3a4; color-scheme:dark}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}  /* 閉じている欄を確実に隠す */
 html,body{margin:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;
   padding:env(safe-area-inset-top,0) max(16px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
@@ -86,6 +87,38 @@ button:disabled{opacity:.45;cursor:default}
 .io{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .io > *{flex:1 1 140px;padding:12px;font-size:14px}
 .msg.ok{color:var(--accent)}
+.form select{font:inherit;font-size:16px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;width:100%}
+.cap{font-size:12px;color:var(--muted);margin-top:-8px}
+li .n,li .d{cursor:pointer}
+li .rtl{color:var(--accent);margin-left:6px}
+li canvas.rt{grid-column:1/-1;height:170px;margin-top:8px}
+.exp{display:flex;flex-direction:column;gap:8px}
+.exp button{padding:12px;font-size:14px}
+/* 練習メニュー */
+.planhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.count{font-size:13px;color:var(--muted)}
+.count b{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:26px;color:var(--fg);margin:0 2px}
+.basis{font-size:12px;color:var(--muted);margin-top:-8px}
+.today{background:var(--bg);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:4px}
+.today .k{font-size:12px;color:var(--muted);letter-spacing:.04em}
+.today .ttl{font-size:22px;font-weight:700;text-wrap:balance}
+.today .dt{font-size:14px;line-height:1.55}
+.today .st{font-size:13px;font-weight:700;color:var(--accent)}
+.today .nx{font-size:13px;color:var(--muted)}
+details>summary{cursor:pointer;font-size:13px;font-weight:700;padding:8px 0;list-style-position:inside}
+.wk{border-top:1px solid var(--line)}
+.wk summary{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;list-style:none}
+.wk summary::-webkit-details-marker{display:none}
+.wk summary .ph{color:var(--muted);font-weight:600;margin-left:6px}
+.wk summary .sm{color:var(--muted);font-weight:500;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.day{display:grid;grid-template-columns:4.6em 1fr auto;gap:2px 10px;padding:8px 0;border-top:1px dashed var(--line);font-size:13px;align-items:baseline}
+.day .dd{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--muted)}
+.day .tt{font-weight:700}
+.day .dx{grid-column:2/4;color:var(--muted);font-size:12px;line-height:1.5}
+.day.rest .tt{color:var(--muted);font-weight:500}
+.day.now .dd{color:var(--accent);font-weight:700}
+.tt.q{color:var(--warn)} .tt.lg{color:var(--accent)}
+.s-ok{color:var(--accent);font-weight:700} .s-part{color:var(--warn);font-weight:600} .s-miss{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -94,6 +127,7 @@ button:disabled{opacity:.45;cursor:default}
     <h1>ジョグログ</h1>
     <div class="gps"><span class="dot" id="gpsDot"></span><span id="gpsTxt">GPS待機中</span></div>
   </header>
+  <div class="msg" id="storeWarn" role="alert" hidden></div>
 
   <section class="meter">
     <div class="big" id="dist">0.00<small>km</small></div>
@@ -103,8 +137,31 @@ button:disabled{opacity:.45;cursor:default}
       <div class="stat"><div class="k">速度</div><div class="v" id="speed">0.0</div></div>
     </div>
     <canvas id="map" aria-label="走行ルート"></canvas>
+    <div class="cap" id="mapCap"></div>
     <div class="btns" id="btns"></div>
     <div class="msg" id="msg"></div>
+  </section>
+
+  <section class="meter" id="plan">
+    <div class="planhead"><div class="mtitle">ハーフマラソン練習</div><div class="count" id="pCount"></div></div>
+    <div class="basis" id="pBasis"></div>
+    <div id="pToday"></div>
+    <details id="pSetWrap">
+      <summary>大会と目標の設定</summary>
+      <div class="form">
+        <label for="pRace">大会の日<input type="date" id="pRace"></label>
+        <div class="lbl">目標タイム（空欄なら履歴から予想します）
+          <span class="hms"><input type="number" id="gH" min="0" max="4" inputmode="numeric" placeholder="2" aria-label="目標の時間">時間<input type="number" id="gM" min="0" max="59" inputmode="numeric" placeholder="00" aria-label="目標の分">分<input type="number" id="gS" min="0" max="59" inputmode="numeric" placeholder="00" aria-label="目標の秒">秒</span>
+        </div>
+        <label for="pDays">1週間に走る日数<select id="pDays"><option value="3">3日</option><option value="4">4日</option><option value="5">5日</option></select></label>
+        <label for="pLong">ロング走をする曜日<select id="pLong"><option value="0">日曜</option><option value="1">月曜</option><option value="2">火曜</option><option value="3">水曜</option><option value="4">木曜</option><option value="5">金曜</option><option value="6">土曜</option></select></label>
+        <label for="pWeekly">今の1週間の走行距離 (km)<input type="number" id="pWeekly" min="0" step="1" inputmode="decimal" placeholder="例：15"></label>
+        <div class="msg" id="pMsg"></div>
+        <button class="primary" id="pMake">この内容でメニューを作り直す</button>
+      </div>
+    </details>
+    <div id="pWeeks"></div>
+    <p class="hint">走った記録は自動で照らし合わせ、達成は ✓ で表示します。痛みや強い疲れがある日は、メニューより休養を優先してください。</p>
   </section>
 
   <div class="histhead"><h2>履歴</h2><button class="small" id="addBtn">＋ あとから追加</button></div>
@@ -113,7 +170,7 @@ button:disabled{opacity:.45;cursor:default}
     <div class="mtitle" id="mTitle">あとから記録を追加</div>
     <div class="tools">
       <button id="mapBtn">地図でルートを描く</button>
-      <label class="filebtn">GPX / KML を読み込む<input type="file" id="fileIn" accept=".gpx,.kml,.xml,application/gpx+xml,application/vnd.google-earth.kml+xml,text/xml,application/xml"></label>
+      <label class="filebtn">GPX / KML を読み込む<input type="file" id="fileIn"></label>
     </div>
     <div id="mapWrap" hidden>
       <div id="lmap"></div>
@@ -140,7 +197,11 @@ button:disabled{opacity:.45;cursor:default}
 
   <div class="io">
     <button id="expBtn">履歴を書き出す</button>
-    <label class="filebtn">履歴を読み込む<input type="file" id="impIn" accept=".json,application/json"></label>
+    <label class="filebtn">履歴を読み込む<input type="file" id="impIn"></label>
+  </div>
+  <div class="exp" id="expPanel" hidden>
+    <button id="expFile">端末にファイルを保存（ダウンロード）</button>
+    <button id="expShare" hidden>共有して保存（Googleドライブ・メールなど）</button>
   </div>
   <div class="msg" id="hMsg"></div>
   <p class="hint">機種変更やブラウザを替えるときは、「履歴を書き出す」で保存したファイルを、移行先で「履歴を読み込む」から選んでください。今ある記録は消えず、同じ記録は重複しません。</p>
@@ -150,19 +211,25 @@ button:disabled{opacity:.45;cursor:default}
 <script>
 (()=>{
 const KEY_H='joglog.history.v1', KEY_CUR='joglog.current.v1';
-const MAX_ACC=35;      // これより精度が悪い測位は捨てる (m)
+const MAX_ACC=50;      // これより精度が悪い測位は捨てる (m)
 const MIN_STEP=4;      // これ未満の移動はGPSの揺れとみなす (m)
 const MAX_SPEED=12;    // これを超える瞬間速度は飛びとみなす (m/s)
 
 const $=id=>document.getElementById(id);
 const load=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}};
-const save=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+/* 保存に失敗したら（容量不足など）黙って消えないよう、画面上部で知らせる */
+const save=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){
+  const w=document.getElementById('storeWarn');
+  if(w){w.hidden=false;w.textContent='保存できませんでした。端末の保存容量がいっぱいです。「履歴を書き出す」でバックアップしてから、古い記録を削除してください。'}
+  return false}};
+// ブラウザが自動でデータを消さないよう依頼する（対応ブラウザのみ）
+try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
 const del=k=>{try{localStorage.removeItem(k)}catch(e){}};
 
 let history=load(KEY_H,[]);
 // run: {start, pts:[[lat,lon,t]], dist, activeMs, segStart|null, state:'run'|'pause'}
 let run=load(KEY_CUR,null);
-let watchId=null, wake=null, tick=null, lastFix=null;
+let watchId=null, wake=null, tick=null, lastFix=null, gpsErr=false;
 
 function hav(a,b){const R=6371000,r=Math.PI/180;
   const dLa=(b[0]-a[0])*r,dLo=(b[1]-a[1])*r;
@@ -175,21 +242,24 @@ function fmtP(ms,m){if(m<50)return `--'--"`;const spk=ms/1000/(m/1000);if(!isFin
 
 function onPos(p){
   const c=p.coords; lastFix=Date.now();
+  if(gpsErr){gpsErr=false;$('msg').textContent=''}
   const ok=c.accuracy<=MAX_ACC;
   $('gpsDot').className='dot '+(ok?'ok':'bad');
-  $('gpsTxt').textContent=`精度 ±${Math.round(c.accuracy)}m`;
+  const gpsLabel=()=>`精度 ±${Math.round(c.accuracy)}m${ok?'':'（弱い）'}`+(run?`・${run.pts.length}地点`:'');
+  $('gpsTxt').textContent=gpsLabel();
   if(!run||run.state!=='run'||!ok)return;
   const pt=[+c.latitude.toFixed(6),+c.longitude.toFixed(6),p.timestamp];
   const last=run.pts[run.pts.length-1];
   if(last && !last[3]){ // 同じ区間の続き
     const d=hav(last,pt), dt=(pt[2]-last[2])/1000;
-    if(d<Math.max(MIN_STEP,c.accuracy*0.5))return;
+    if(d<Math.max(MIN_STEP,Math.min(c.accuracy*0.4,15)))return;
     if(dt>0&&d/dt>MAX_SPEED)return;
     run.dist+=d;
   }
-  run.pts.push(pt); save(KEY_CUR,run); draw();
+  run.pts.push(pt); save(KEY_CUR,run); draw(); $('gpsTxt').textContent=gpsLabel();
 }
 function onErr(e){
+  gpsErr=true;
   const m={1:'位置情報の利用が許可されていません。ブラウザの設定で許可してください。',2:'現在地を取得できません。空が見える場所に移動してください。',3:'GPSの応答待ちです…'};
   $('msg').textContent=m[e.code]||e.message;
   $('gpsDot').className='dot bad';
@@ -201,7 +271,10 @@ function startWatch(){
 function stopWatch(){if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null}}
 async function lock(){try{if('wakeLock' in navigator&&!wake){wake=await navigator.wakeLock.request('screen');wake.addEventListener('release',()=>wake=null)}}catch(e){}}
 function unlock(){try{wake&&wake.release()}catch(e){}wake=null}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&run&&run.state==='run')lock()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;
+  if(run&&run.state==='run')lock();
+  renderPlan(); // 日付が変わっていたら「今日のメニュー」を更新
+});
 
 function start(){
   $('msg').textContent='';
@@ -216,8 +289,10 @@ function pause(){
 function resume(){run.segStart=Date.now();run.state='run';save(KEY_CUR,run);startWatch();lock();render()}
 function finish(){
   if(run.state==='run'){run.activeMs+=Date.now()-run.segStart}
-  history.unshift({start:run.start,dist:Math.round(run.dist),ms:run.activeMs,pts:run.pts});
-  save(KEY_H,history); del(KEY_CUR); run=null; stopWatch(); unlock(); render();
+  // 形が変わらない範囲（3m）で点を間引いて保存容量を節約する。距離は間引く前の値を使う
+  history.unshift({start:run.start,dist:Math.round(run.dist),ms:run.activeMs,pts:simplify(run.pts,3)});
+  if(!save(KEY_H,history)){history.shift();$('msg').textContent='記録を保存できませんでした。容量を空けてから、もう一度「終了して保存」を押してください。';render();return}
+  del(KEY_CUR); run=null; stopWatch(); unlock(); render();
 }
 function discard(){run=null;del(KEY_CUR);stopWatch();unlock();render()}
 
@@ -239,12 +314,17 @@ function renderLive(){
   if(lastFix&&Date.now()-lastFix>15000&&run&&run.state==='run'){$('gpsDot').className='dot bad';$('gpsTxt').textContent='GPS信号待ち'}
 }
 function draw(){
-  const cv=$('map'),dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+  const last=run?null:history.find(r=>r.pts&&r.pts.length>1);
+  drawRoute($('map'),run?run.pts:last?last.pts:[],run?'GPSで位置を取得するとルートが表示されます':'スタートすると走ったルートを描きます');
+  if(last){const d=new Date(last.start);$('mapCap').textContent=`前回のルート（${d.getMonth()+1}/${d.getDate()}・${(last.dist/1000).toFixed(2)}km）`}
+  else $('mapCap').textContent='';
+}
+function drawRoute(cv,pts,emptyText){
+  const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
   cv.width=w*dpr;cv.height=h*dpr;const g=cv.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,w,h);
   const cs=getComputedStyle(document.documentElement);
-  const pts=run?run.pts:[];
   if(pts.length<2){g.fillStyle=cs.getPropertyValue('--muted');g.font='13px sans-serif';g.textAlign='center';
-    g.fillText(run?'GPSで位置を取得するとルートが表示されます':'スタートすると走ったルートを描きます',w/2,h/2);return}
+    g.fillText(emptyText,w/2,h/2);return}
   let la0=Infinity,la1=-Infinity,lo0=Infinity,lo1=-Infinity;
   pts.forEach(p=>{la0=Math.min(la0,p[0]);la1=Math.max(la1,p[0]);lo0=Math.min(lo0,p[1]);lo1=Math.max(lo1,p[1])});
   const k=Math.cos((la0+la1)/2*Math.PI/180), pad=14;
@@ -253,7 +333,14 @@ function draw(){
   const X=p=>ox+(p[1]-lo0)*k*s, Y=p=>h-oy-(p[0]-la0)*s;
   g.strokeStyle=cs.getPropertyValue('--track');g.lineWidth=3.5;g.lineJoin=g.lineCap='round';g.beginPath();
   pts.forEach((p,i)=>{const pr=pts[i-1];if(i===0||(pr&&pr[3]))g.moveTo(X(p),Y(p));else g.lineTo(X(p),Y(p))});g.stroke();
+  const s0=pts[0];g.fillStyle=cs.getPropertyValue('--track');g.beginPath();g.arc(X(s0),Y(s0),5,0,7);g.fill();
   const e=pts[pts.length-1];g.fillStyle=cs.getPropertyValue('--fg');g.beginPath();g.arc(X(e),Y(e),5,0,7);g.fill();
+}
+function toggleRoute(li,r){
+  let cv=li.querySelector('canvas.rt');
+  if(cv){cv.remove();return}
+  cv=document.createElement('canvas');cv.className='rt';cv.setAttribute('aria-label','この記録のルート');li.appendChild(cv);
+  drawRoute(cv,r.pts||[],'ルートがありません（「編集」から地図で描けます）');
 }
 function renderHist(){
   const ul=$('hist');ul.innerHTML='';
@@ -264,8 +351,9 @@ function renderHist(){
     const li=document.createElement('li'), d=new Date(r.start);
     const ds=`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
     li.innerHTML=`<div class="n">${(r.dist/1000).toFixed(2)} km ・ ${fmtT(r.ms)}</div>
-      <div class="a"></div><div class="d">${ds} ・ ペース ${fmtP(r.ms,r.dist)}/km${r.manual?'<span class="tag">あとから</span>':''}${r.edited?'<span class="tag">編集済み</span>':''}</div>`;
+      <div class="a"></div><div class="d">${ds} ・ ペース ${fmtP(r.ms,r.dist)}/km${r.manual?'<span class="tag">あとから</span>':''}${r.edited?'<span class="tag">編集済み</span>':''}<span class="rtl">▾ルート</span></div>`;
     const a=li.querySelector('.a');
+    li.querySelector('.n').onclick=li.querySelector('.d').onclick=()=>toggleRoute(li,r);
     const ed=document.createElement('button');ed.textContent='編集';ed.onclick=()=>openManual(r);a.append(ed);
     const gpx=document.createElement('button');gpx.textContent='GPX';gpx.onclick=()=>exportGpx(r);
     gpx.disabled=!(r.pts&&r.pts.length>1);
@@ -280,29 +368,40 @@ function exportGpx(r){
   let segs=[[]];r.pts.forEach(p=>{segs[segs.length-1].push(p);if(p[3])segs.push([])});
   const body=segs.filter(s=>s.length).map(s=>'<trkseg>'+s.map(p=>`<trkpt lat="${p[0]}" lon="${p[1]}"><time>${new Date(p[2]).toISOString()}</time></trkpt>`).join('')+'</trkseg>').join('');
   const x=`<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="JogLog" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Jog ${new Date(r.start).toISOString()}</name>${body}</trk></gpx>`;
-  saveFile(`jog-${stamp(new Date(r.start))}.gpx`,x,'application/gpx+xml');
+  downloadFile(`jog-${stamp(new Date(r.start))}.gpx`,x,'application/gpx+xml');
+  hmsg(isAndroid?'GPXファイルを「Files」アプリの「ダウンロード」に保存しました。':'GPXファイルをダウンロードしました。');
 }
 const stamp=d=>`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}`;
-/* ファイル保存：ホーム画面アプリとして開いているときは共有シート、それ以外は通常のダウンロード */
-async function saveFile(name,text,type){
-  const blob=new Blob([text],{type});
-  const standalone=window.navigator.standalone||matchMedia('(display-mode: standalone)').matches;
-  if(standalone&&navigator.canShare){
-    try{const f=new File([blob],name,{type});if(navigator.canShare({files:[f]})){await navigator.share({files:[f]});return true}}
-    catch(e){if(e&&e.name==='AbortError')return false}
-  }
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
-  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),10000);
-  return true;
+const isAndroid=/Android/i.test(navigator.userAgent);
+function downloadFile(name,text,type){
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),60000);
 }
+/* Android の共有は .json を受け付けないので、中身は同じままテキスト（.txt）として共有する */
+const shareFileOf=(name,text)=>new File([text],name,{type:'text/plain'});
+function canShareText(){try{return !!(navigator.canShare&&navigator.canShare({files:[shareFileOf('a.txt','x')]}))}catch(e){return false}}
 
 /* ---------- 履歴の書き出し・読み込み（機種変更などの移行用） ---------- */
 const hmsg=(t,bad)=>{const m=$('hMsg');m.textContent=t||'';m.className='msg'+(bad?'':' ok')};
-async function exportHistory(){
+function backupText(){return JSON.stringify({app:'JogLog',version:2,exportedAt:new Date().toISOString(),count:history.length,history,plan})}
+function exportHistory(){
   if(!history.length)return hmsg('書き出す記録がありません。',true);
-  const data={app:'JogLog',version:1,exportedAt:new Date().toISOString(),count:history.length,history};
-  const ok=await saveFile(`joglog-backup-${stamp(new Date())}.json`,JSON.stringify(data),'application/json');
-  if(ok)hmsg(`${history.length}件の記録を書き出しました。移行先の端末で「履歴を読み込む」から選んでください。`);
+  const p=$('expPanel');p.hidden=!p.hidden;$('expShare').hidden=!canShareText();hmsg('');
+}
+function exportToFile(){
+  const name=`joglog-backup-${stamp(new Date())}.json`;
+  downloadFile(name,backupText(),'application/json');
+  $('expPanel').hidden=true;
+  hmsg(isAndroid
+    ?`「${name}」を保存しました。「Files」アプリ（Files by Google）の「ダウンロード」にあります。見つからないときは「共有して保存」を使ってください。`
+    :`「${name}」を保存しました。「ファイル」アプリやダウンロードフォルダにあります。`);
+}
+async function exportByShare(){
+  const name=`joglog-backup-${stamp(new Date())}.txt`;
+  try{await navigator.share({files:[shareFileOf(name,backupText())],title:'ジョグログの履歴'});
+    $('expPanel').hidden=true;
+    hmsg('共有しました。保存したファイルを、移行先で「履歴を読み込む」から選んでください。');
+  }catch(e){if(!(e&&e.name==='AbortError'))hmsg('共有できませんでした。「端末にファイルを保存」を使ってください。',true)}
 }
 function validRecord(r){
   if(!r||typeof r!=='object')return null;
@@ -317,20 +416,26 @@ function validRecord(r){
 async function importHistory(e){
   const f=e.target.files[0];e.target.value='';if(!f)return;
   let data;
-  try{data=JSON.parse(await f.text())}catch(err){return hmsg('このファイルは読み込めません。ジョグログで書き出したファイル（.json）を選んでください。',true)}
+  try{data=JSON.parse(await f.text())}catch(err){return hmsg('このファイルは読み込めません。ジョグログで書き出したファイル（joglog-backup で始まる .json か .txt）を選んでください。',true)}
   const list=Array.isArray(data)?data:data&&Array.isArray(data.history)?data.history:null;
   if(!list)return hmsg('ジョグログの履歴ファイルではないようです。',true);
-  const have=new Set(history.map(r=>r.start));
+  // 開始時刻・距離・時間がすべて同じものだけを重複とみなす
+  const keyOf=r=>`${r.start}|${r.dist}|${r.ms}`;
+  const have=new Set(history.map(keyOf));
   let added=0,dup=0,bad=0;
   list.forEach(raw=>{const r=validRecord(raw);
     if(!r){bad++;return}
-    if(have.has(r.start)){dup++;return}
-    history.push(r);have.add(r.start);added++});
+    if(have.has(keyOf(r))){dup++;return}
+    history.push(r);have.add(keyOf(r));added++});
   history.sort((a,b)=>b.start-a.start);
-  save(KEY_H,history);renderHist();
-  hmsg(`${added}件を追加しました。`+(dup?`同じ記録${dup}件は重複のため飛ばしました。`:'')+(bad?`壊れていた${bad}件は読み込めませんでした。`:''),!added&&!dup);
+  save(KEY_H,history);
+  let planNote='';
+  const fp=data&&data.plan;
+  if(fp&&fp.settings&&Array.isArray(fp.days)&&(!plan||plan.auto||(fp.made||0)>(plan.made||0))){plan=fp;save(KEY_PLAN,plan);fillPlanForm();planNote='練習メニューも読み込みました。'}
+  render();
+  hmsg(planNote+`${added}件を追加しました。`+(dup?`同じ記録${dup}件は重複のため飛ばしました。`:'')+(bad?`壊れていた${bad}件は読み込めませんでした。`:''),!added&&!dup);
 }
-function render(){renderBtns();renderLive();draw();renderHist()}
+function render(){renderBtns();renderLive();draw();renderHist();renderPlan()}
 
 /* ---------- あとから追加・編集 ---------- */
 let mPts=[], mUndo=[], mEdit=null, mSel=-1, mMode='end', lmap=null, lline=null, lhandles=null;
@@ -384,6 +489,16 @@ function handleIdx(pts){
     if(keep.size<=300)return [...keep].sort((a,b)=>a-b);
   }
 }
+function simplify(pts,eps){
+  if(pts.length<3)return pts.map(p=>p.slice());
+  const k=Math.cos(pts[0][0]*Math.PI/180), xy=pts.map(p=>proj(p,k)), keep=new Uint8Array(pts.length);
+  const dp=(a,b)=>{keep[a]=keep[b]=1;const st=[[a,b]];
+    while(st.length){const [i,j]=st.pop();let m=-1,md=eps;
+      for(let q=i+1;q<j;q++){const d=segD(xy[q],xy[i],xy[j]);if(d>md){md=d;m=q}}
+      if(m>0){keep[m]=1;st.push([i,m],[m,j])}}};
+  let s=0;for(let i=0;i<pts.length;i++)if(pts[i][3]||i===pts.length-1){dp(s,i);s=i+1}
+  return pts.filter((_,i)=>keep[i]).map(p=>p.slice());
+}
 function segD(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],L2=dx*dx+dy*dy;
   let t=L2?((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L2:0;t=Math.max(0,Math.min(1,t));
   return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy)}
@@ -436,7 +551,7 @@ async function loadLeaflet(){
 }
 /* 地図画像：国土地理院（参照元なしでも表示できる）を基本に、だめならOSMへ切り替え */
 function addTiles(map){
-  const gsi=L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{maxZoom:18,attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>'});
+  const gsi=L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{maxNativeZoom:18,maxZoom:19,attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>'});
   const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'});
   let loaded=0,failed=0,switched=false;
   const watch=layer=>{
@@ -453,6 +568,7 @@ function addTiles(map){
 }
 async function openMap(){
   $('mapWrap').hidden=false;
+  setTimeout(()=>$('mapWrap').scrollIntoView({behavior:'smooth',block:'nearest'}),50);  // 地図が画面の下に隠れないように
   if(lmap){setTimeout(()=>{lmap.invalidateSize();fitRoute();refreshLayers()},0);return}
   mmsg('地図を読み込んでいます…');
   try{await loadLeaflet()}catch(e){
@@ -567,6 +683,187 @@ function saveManual(){
   save(KEY_H,history); closeManual(); renderHist();
 }
 
+/* ---------- ハーフマラソン練習メニュー ---------- */
+const KEY_PLAN='joglog.plan.v1', HALF=21.0975, DAY=864e5, DOW='日月火水木金土';
+const ymd=d=>`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+const parseYmd=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
+const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
+const daysBetween=(a,b)=>Math.round((b-a)/DAY);
+const mdw=d=>`${d.getMonth()+1}/${d.getDate()}（${DOW[d.getDay()]}）`;
+const r05=x=>Math.max(0,Math.round(x*2)/2);
+const fmtPace=s=>{s=Math.round(s);return `${Math.floor(s/60)}'${pad2(s%60)}"`};
+const fmtHMS=s=>{s=Math.round(s);return `${Math.floor(s/3600)}:${pad2(Math.floor(s/60)%60)}:${pad2(s%60)}`};
+const pmsg=(t,bad)=>{const m=$('pMsg');m.textContent=t||'';m.className='msg'+(bad?'':' ok')};
+let plan=load(KEY_PLAN,null);
+
+/* 直近90日・3km以上の記録から、ハーフのタイムを予想（リーゲルの式） */
+function predictHalf(){
+  const now=Date.now();let best=null;
+  history.forEach(r=>{if(r.dist<3000||r.ms<=0||now-r.start>90*DAY)return;
+    if(r.ms/r.dist<0.15)return; // 2'30"/kmより速い記録はGPSの誤りや乗り物とみなして使わない
+    const t=r.ms/1000*Math.pow(HALF*1000/r.dist,1.06);
+    if(t>3600&&(!best||t<best))best=t});
+  return best;
+}
+const recentWeekly=()=>{const now=Date.now();return history.filter(r=>now-r.start<28*DAY).reduce((a,r)=>a+r.dist,0)/1000/4};
+const recentLongest=()=>{const now=Date.now();return history.filter(r=>now-r.start<42*DAY).reduce((a,r)=>Math.max(a,r.dist),0)/1000};
+
+/* ロング走の日から数えた練習日（q=ポイント練習、q2=レースペース走、e=イージー走） */
+const TPL={3:{'-4':'q','-2':'e'},4:{'-6':'e','-4':'q','-2':'e'},5:{'-6':'e','-5':'q','-3':'e','-2':'q2'}};
+
+function genPlan(set){
+  const today=parseYmd(ymd(new Date())), race=parseYmd(set.race), total=daysBetween(today,race);
+  const pred=predictHalf(), goal=set.goal||pred||8400;
+  const RP=goal/HALF, P={easy:RP+70,long:RP+50,tempo:RP-15,int:RP-30,rp:RP};
+  const out={settings:set,goal,goalSrc:set.goal?'goal':pred?'pred':'default',made:Date.now(),days:[]};
+  if(total<0)return out;
+  const pc=s=>fmtPace(s)+'/km';
+  const M={
+    rest:()=>({type:'rest',km:0,title:'休養',detail:'休むか、散歩・ストレッチ程度に'}),
+    easy:(km,extra)=>({type:'easy',km:r05(km),title:`イージー走 ${r05(km)}km`,detail:`${pc(P.easy)}前後。会話できるくらいの楽なペースで`+(extra||'')}),
+    long:(km,fin)=>({type:'long',km:r05(km),title:`ロング走 ${r05(km)}km`,detail:`${pc(P.long)}前後でゆっくり長く`+(fin?`。最後の${fin}kmだけ${pc(P.rp)}に上げる`:'')+'。給水や補給の練習も'}),
+    tempo:t=>({type:'tempo',km:t+3,title:`ペース走 ${t+3}km`,detail:`2kmジョグ → ${t}kmを${pc(P.tempo)}（ややきつい） → 1kmジョグ`}),
+    int:n=>({type:'int',km:r05(2.5+n*1.4),title:`インターバル ${r05(2.5+n*1.4)}km`,detail:`1.5kmジョグ → 1kmを${pc(P.int)}で走り、400mジョグでつなぐ ×${n}本 → 1kmジョグ`}),
+    rp:t=>({type:'rp',km:t+2,title:`レースペース走 ${t+2}km`,detail:`1kmジョグ → ${t}kmを${pc(P.rp)}（本番のペース） → 1kmジョグ`}),
+    rpSet:(n,each)=>{const km=r05(2+n*each+(n-1)*0.4);return {type:'rp',km,title:`レースペース走 ${km}km`,detail:`1kmジョグ → ${each}kmを${pc(P.rp)}で走り、400mジョグでつなぐ ×${n}本 → 1kmジョグ`}},
+    race:()=>({type:'race',km:HALF,title:'大会当日 21.1km',detail:`目標 ${fmtHMS(goal)}（${pc(RP)}）。最初の5kmは目標より少し遅めに入り、後半に上げる`})
+  };
+  const days=new Map();
+  const put=(date,o)=>{if(date<today||date>race)return;days.set(ymd(date),Object.assign({d:ymd(date)},o))};
+  for(let d=new Date(today);d<=race;d=addDays(d,1))put(d,M.rest());
+
+  // ロング走の日を基準に7日ずつの区切りを作る。L1＝大会の7日以上前で最後のロング走
+  const end1=addDays(race,-7), L1=addDays(end1,-((end1.getDay()-set.longDow+7)%7));
+  const N=L1<today?0:Math.floor(daysBetween(today,L1)/7)+1;  // 今日以降にあるロング走の区切りの数
+  const nBuild=Math.max(1,N-1);
+  const base=Math.max(8,+set.weekly||8);
+  const peakCap=Math.min(18,Math.max(12,base*0.6+8));
+  const longStart=Math.min(peakCap,Math.max(6,recentLongest(),base*0.4));
+  const longPeak=Math.min(peakCap,longStart+2*Math.max(1,nBuild-1));
+  const peakVol=base*Math.min(1.4,Math.pow(1.1,nBuild));
+  const tpl=TPL[set.days]||TPL[4];
+  const fillWeek=(L,vol,long,q,q2)=>{
+    put(L,long);
+    const keys=Object.keys(tpl), nE=keys.filter(k=>tpl[k]==='e').length;
+    const hasQ2=Object.values(tpl).includes('q2');
+    const easyKm=Math.min(10,Math.max(3,(vol-long.km-q.km-(hasQ2?q2.km:0))/Math.max(1,nE)));
+    keys.forEach(k=>{const d=addDays(L,+k),t=tpl[k];put(d,t==='q'?q:t==='q2'?q2:M.easy(easyKm))});
+  };
+  const longDay=w=>addDays(L1,-7*(w-1));
+  // 強化期：距離を少しずつ伸ばす
+  for(let w=N;w>=2;w--){
+    const j=N-w, prog=nBuild>1?j/(nBuild-1):1;
+    const vol=base*Math.min(1.4,Math.pow(1.1,j+1));
+    const n=Math.round(3+3*prog);
+    fillWeek(longDay(w),vol,M.long(longStart+(longPeak-longStart)*prog,w===2?3:0),w%2===0?M.tempo(n):M.int(n),M.rp(Math.round(3+2*prog)));
+  }
+  // 調整期：量を落として疲れを抜く
+  if(N>=1)fillWeek(longDay(1),peakVol*0.7,M.long(Math.min(12,longPeak*0.75),3),M.rpSet(3,2),M.easy(5));
+  // 最後のロング走からレース週までの間（ロング走の曜日と大会の曜日が違うときに生じる）
+  for(let d=addDays(L1,2);d<addDays(race,-6);d=addDays(d,2))put(d,M.easy(5));
+  // レース週
+  put(race,M.race());
+  put(addDays(race,-4),M.rpSet(2,1.5));
+  put(addDays(race,-2),M.easy(4,'。最後に100mの流しを3本'));
+  put(addDays(race,-1),{type:'rest',km:0,title:'休養',detail:'しっかり休む。不安なら2kmほど軽くジョグ'});
+  if(set.days>=4)put(addDays(race,-6),M.easy(5));
+  if(set.days>=5)put(addDays(race,-5),M.easy(4));
+  out.days=[...days.values()].sort((a,b)=>a.d<b.d?-1:1);
+  return out;
+}
+
+function readPlanForm(){
+  const race=$('pRace').value;
+  if(!race){pmsg('大会の日を入れてください。',true);return null}
+  const gs=(+$('gH').value||0)*3600+(+$('gM').value||0)*60+(+$('gS').value||0);
+  if(gs&&(gs<3600||gs>4*3600)){pmsg('目標タイムは1時間〜4時間の範囲で入れてください。',true);return null}
+  return {race,goal:gs||null,days:+$('pDays').value,longDow:+$('pLong').value,weekly:parseFloat($('pWeekly').value)||null};
+}
+function fillPlanForm(){
+  if(!plan)return;const s=plan.settings;
+  $('pRace').value=s.race;$('pDays').value=String(s.days);$('pLong').value=String(s.longDow);
+  $('pWeekly').value=s.weekly?Math.round(s.weekly):'';
+  if(s.goal){$('gH').value=Math.floor(s.goal/3600);$('gM').value=Math.floor(s.goal/60)%60;$('gS').value=Math.round(s.goal%60)}
+  else ['gH','gM','gS'].forEach(id=>$(id).value='');
+}
+function makePlan(){
+  const set=readPlanForm();if(!set)return;
+  const np=genPlan(set), td=ymd(new Date());
+  if(plan)np.days=plan.days.filter(x=>x.d<td).concat(np.days);  // 過去の分は実績と照らせるよう残す
+  plan=np;save(KEY_PLAN,plan);renderPlan();
+  $('pSetWrap').open=false;pmsg('');
+  $('plan').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function actualByDay(){const m={};history.forEach(r=>{if(r.dist<100)return;const k=ymd(new Date(r.start));m[k]=(m[k]||0)+r.dist/1000});return m}
+function dayStatus(x,act,td){
+  const a=act[x.d]||0;
+  if(x.type==='rest')return a>0?{c:'s-miss',t:`${a.toFixed(1)}km`}:{c:'',t:''};
+  if(x.d>td)return {c:'',t:''};
+  if(a>=x.km*0.7)return {c:'s-ok',t:`✓ ${a.toFixed(1)}km`};
+  if(a>0)return {c:'s-part',t:`△ ${a.toFixed(1)}km`};
+  return x.d<td?{c:'s-miss',t:'未実施'}:{c:'',t:''};
+}
+const ttClass=t=>t==='tempo'||t==='int'||t==='rp'?'tt q':t==='long'||t==='race'?'tt lg':'tt';
+
+function renderPlan(){
+  if(!plan)return;
+  const set=plan.settings, td=ymd(new Date()), today=parseYmd(td), race=parseYmd(set.race), left=daysBetween(today,race);
+  $('pCount').innerHTML=left>0?`大会まで<b>${left}</b>日`:left===0?'<b>今日は大会当日</b>':'大会は終了しました';
+  $('pBasis').textContent=`${mdw(race)}・目標 ${fmtHMS(plan.goal)}（${fmtPace(plan.goal/HALF)}/km）`
+    +({goal:'',pred:'・最近の記録から予想したタイムです',default:'・目標タイムを設定するとペースが合います'}[plan.goalSrc]||'');
+  const act=actualByDay();
+
+  // 今日のメニュー
+  const box=$('pToday');box.innerHTML='';
+  const card=document.createElement('div');card.className='today';
+  const add=(cls,txt)=>{const e=document.createElement('div');e.className=cls;e.textContent=txt;card.appendChild(e)};
+  if(left<0){add('ttl','お疲れさまでした');add('dt','次の大会の日を「大会と目標の設定」に入れると、新しいメニューを作ります。')}
+  else{
+    const x=plan.days.find(y=>y.d===td);
+    add('k',`今日 ${mdw(today)}`);
+    if(x){add('ttl',x.type==='rest'?'今日は休養日':x.title);add('dt',x.detail);
+      const st=dayStatus(x,act,td);if(st.t&&x.type!=='rest')add('st',st.c==='s-ok'?`達成しました（${st.t.slice(2)}）`:`今日は ${st.t.slice(2)} 走りました`)}
+    else add('dt','今日のメニューはありません。「この内容でメニューを作り直す」を押してください。');
+    const nx=plan.days.find(y=>y.d>td&&y.type!=='rest');
+    if(nx)add('nx',`次：${mdw(parseYmd(nx.d))} ${nx.title}`);
+  }
+  box.appendChild(card);
+
+  // 週ごとの一覧（月曜はじまり）
+  const wrap=$('pWeeks');wrap.innerHTML='';
+  const weeks=new Map();
+  plan.days.forEach(x=>{const d=parseYmd(x.d),mon=addDays(d,-((d.getDay()+6)%7)),k=ymd(mon);
+    if(!weeks.has(k))weeks.set(k,[]);weeks.get(k).push(x)});
+  [...weeks.entries()].forEach(([k,list])=>{
+    const mon=parseYmd(k),sun=addDays(mon,6);
+    const ph=race>=mon&&race<=sun?'レース週':daysBetween(sun,race)<7?'調整期':'強化期';
+    const planned=list.reduce((a,x)=>a+(x.type==='rest'?0:x.km),0);
+    let done=0;for(let i=0;i<7;i++){done+=act[ymd(addDays(mon,i))]||0}
+    const det=document.createElement('details');det.className='wk';
+    if(td>=k&&td<=ymd(sun))det.open=true;
+    const sm=document.createElement('summary');
+    sm.innerHTML=`<span>${mon.getMonth()+1}/${mon.getDate()}〜${sun.getMonth()+1}/${sun.getDate()}<span class="ph">${ph}</span></span><span class="sm">予定 ${planned.toFixed(1)}km・実績 ${done.toFixed(1)}km</span>`;
+    det.appendChild(sm);
+    list.forEach(x=>{
+      const d=parseYmd(x.d),st=dayStatus(x,act,td);
+      const row=document.createElement('div');row.className='day'+(x.type==='rest'?' rest':'')+(x.d===td?' now':'');
+      row.innerHTML=`<span class="dd">${d.getMonth()+1}/${d.getDate()} ${DOW[d.getDay()]}</span><span class="${ttClass(x.type)}"></span><span class="${st.c}">${st.t}</span>`+(x.type==='rest'?'':'<span class="dx"></span>');
+      row.children[1].textContent=x.title;if(x.type!=='rest')row.querySelector('.dx').textContent=x.detail;
+      det.appendChild(row);
+    });
+    wrap.appendChild(det);
+  });
+}
+
+// 初回は 2026/11/28 のハーフマラソンに合わせて作っておく（設定から変更可）
+if(!plan){
+  const race='2026-11-28';
+  plan=genPlan({race,goal:null,days:4,longDow:parseYmd(race).getDay(),weekly:Math.round(recentWeekly())||15});
+  plan.auto=true;save(KEY_PLAN,plan);
+}
+fillPlanForm();
+
 /* 圏外でも起動できるようにする（https で開いたときだけ有効） */
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
   navigator.serviceWorker.register('sw.js').then(reg=>{
@@ -575,9 +872,17 @@ if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostnam
       w.addEventListener('statechange',()=>{if(w.state==='activated'&&navigator.serviceWorker.controller)$('swStatus').textContent='新しい版を受け取りました。次に開いたときから反映されます。'})});
   }).catch(()=>{$('swStatus').textContent='オフライン起動の準備ができませんでした。電波のある場所で開き直してください。'});
 }else{$('swStatus').textContent='オフライン起動は、https のページ（GitHub Pages など）で開いたときに使えます。'}
+// iPhone の Safari で開いたままだと、7日間使わないと記録が消されることがある
+if(/iPhone|iPad|iPod/.test(navigator.userAgent)&&!window.navigator.standalone){
+  const w=$('storeWarn');w.hidden=false;w.className='msg';
+  w.textContent='iPhoneでは、Safariで開いたまま7日間使わないと記録が消えることがあります。共有ボタン→「ホーム画面に追加」から使ってください。';
+}
 
 $('addBtn').onclick=()=>openManual();
 $('expBtn').onclick=exportHistory;
+$('expFile').onclick=exportToFile;
+$('expShare').onclick=exportByShare;
+$('pMake').onclick=makePlan;
 $('impIn').onchange=importHistory;
 $('mCancel').onclick=closeManual;
 $('mSave').onclick=saveManual;
@@ -593,7 +898,8 @@ $('modeIns').onclick=()=>setMode('ins');
 // 途中で閉じても続きから再開できるように
 if(run){if(run.state==='run'){startWatch();lock()}$('msg').textContent='前回の記録の続きです。'}
 render();
-tick=setInterval(renderLive,1000);
+let shownDay=new Date().toDateString();
+tick=setInterval(()=>{renderLive();const d=new Date().toDateString();if(d!==shownDay){shownDay=d;renderPlan()}},1000);
 window.addEventListener('resize',draw);
 })();
 </script>

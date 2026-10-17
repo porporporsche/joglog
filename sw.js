@@ -1,11 +1,12 @@
 /* ジョグログ Service Worker
    - アプリ本体はキャッシュから即起動し、裏で最新版を取得（次回起動時に反映）
-   - 地図部品（Leaflet）と、一度見た地図画像もキャッシュして圏外で再表示 */
-const VERSION = 'joglog-v1';
+   - 地図部品（Leaflet）と、一度見た地図画像もキャッシュして圏外で再表示
+   - 中身の見えない形式（opaque）の応答は保存容量を大きく消費するため保存しない */
+const VERSION = 'joglog-v3';
 const SHELL = VERSION + '-shell';
 const RUNTIME = VERSION + '-runtime';
 const TILES = VERSION + '-tiles';
-const MAX_TILES = 1500;
+const MAX_TILES = 800;
 
 const SHELL_FILES = [
   './',
@@ -37,19 +38,34 @@ async function trimTiles() {
   for (let i = 0; i < keys.length - MAX_TILES; i++) await c.delete(keys[i]);
 }
 
+/* 外部ファイルは中身の見える形式（CORS）で取得できたときだけ保存する。
+   取得できない配信元なら、保存せずに通常どおり読み込む */
+async function fetchAndMaybeCache(req, cacheName, trim) {
+  try {
+    const res = await fetch(req.url, { mode: 'cors', credentials: 'omit' });
+    if (res.ok) {
+      const c = await caches.open(cacheName);
+      await c.put(req.url, res.clone()).catch(() => {});
+      if (trim) trimTiles().catch(() => {});
+      return res;
+    }
+  } catch (e) { /* CORS 非対応・圏外 */ }
+  return fetch(req);
+}
+
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
   // アプリ本体：キャッシュを先に返し、裏で更新
-  if (req.mode === 'navigate' || (url.origin === location.origin)) {
+  if (req.mode === 'navigate' || url.origin === location.origin) {
     e.respondWith((async () => {
       const cache = await caches.open(SHELL);
       const key = req.mode === 'navigate' ? './index.html' : req;
       const cached = await cache.match(key, { ignoreSearch: true });
       const update = fetch(req).then(res => {
-        if (res.ok) cache.put(key, res.clone());
+        if (res.ok) cache.put(key, res.clone()).catch(() => {});
         return res;
       }).catch(() => null);
       if (cached) { e.waitUntil(update); return cached; }
@@ -58,15 +74,11 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // 地図部品：一度取れたらキャッシュを使う
+  // 地図部品：一度保存できたら以後はそれを使う
   if (isLib(url)) {
     e.respondWith((async () => {
-      const cache = await caches.open(RUNTIME);
-      const cached = await cache.match(req);
-      if (cached) return cached;
-      const res = await fetch(req);
-      if (res.ok || res.type === 'opaque') cache.put(req, res.clone());
-      return res;
+      const cached = await caches.match(req.url);
+      return cached || fetchAndMaybeCache(req, RUNTIME, false);
     })());
     return;
   }
@@ -74,13 +86,9 @@ self.addEventListener('fetch', e => {
   // 地図画像：通信できれば最新、圏外なら一度見た画像
   if (isTile(url)) {
     e.respondWith((async () => {
-      const cache = await caches.open(TILES);
-      try {
-        const res = await fetch(req);
-        if (res.ok || res.type === 'opaque') { cache.put(req, res.clone()); e.waitUntil(trimTiles()); }
-        return res;
-      } catch (err) {
-        const cached = await cache.match(req);
+      try { return await fetchAndMaybeCache(req, TILES, true); }
+      catch (err) {
+        const cached = await caches.match(req.url);
         if (cached) return cached;
         throw err;
       }
