@@ -118,6 +118,24 @@ details>summary{cursor:pointer;font-size:13px;font-weight:700;padding:8px 0;list
 .day.rest .tt{color:var(--muted);font-weight:500}
 .day.now .dd{color:var(--accent);font-weight:700}
 .tt.q{color:var(--warn)} .tt.lg{color:var(--accent)}
+/* コーチのアドバイス */
+.astats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.ast .k{font-size:11px;color:var(--muted);letter-spacing:.04em}
+.ast .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:19px;font-weight:700;margin-top:2px;white-space:nowrap}
+.ast .v small{font-size:11px;color:var(--muted);margin-left:2px;font-weight:500}
+.ast .s{font-size:11px;color:var(--muted)}
+canvas#aChart{height:150px;background:transparent}
+.legend{display:flex;gap:14px;font-size:11px;color:var(--muted);margin-top:-6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px;background:var(--accent)}
+.legend i.pl{height:2px;border-radius:0;background:var(--fg);vertical-align:3px}
+ul.advice{gap:12px}
+ul.advice li{display:grid;grid-template-columns:4.6em 1fr;gap:10px;align-items:start;border:0;padding:0}
+.lv{font-size:11px;font-weight:700;border-radius:999px;padding:2px 0;text-align:center;white-space:nowrap;border:1px solid var(--line);color:var(--muted)}
+.lv.warn{color:var(--warn);border-color:var(--warn)}
+.lv.next{color:var(--accent);border-color:var(--accent)}
+.lv.good{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.advice .tx{font-size:14px;line-height:1.65}
+.advice .tx b{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .s-ok{color:var(--accent);font-weight:700} .s-part{color:var(--warn);font-weight:600} .s-miss{color:var(--muted)}
 </style>
 </head>
@@ -162,6 +180,14 @@ details>summary{cursor:pointer;font-size:13px;font-weight:700;padding:8px 0;list
     </details>
     <div id="pWeeks"></div>
     <p class="hint">走った記録は自動で照らし合わせ、達成は ✓ で表示します。痛みや強い疲れがある日は、メニューより休養を優先してください。</p>
+  </section>
+
+  <section class="meter" id="coach">
+    <div class="planhead"><div class="mtitle">コーチのアドバイス</div><div class="count" id="aAsOf"></div></div>
+    <div class="astats" id="aStats"></div>
+    <canvas id="aChart" aria-label="週ごとの走行距離"></canvas>
+    <div class="legend"><span><i></i>走った距離</span><span><i class="pl"></i>メニューの予定</span></div>
+    <ul class="advice" id="aList"></ul>
   </section>
 
   <div class="histhead"><h2>履歴</h2><button class="small" id="addBtn">＋ あとから追加</button></div>
@@ -273,7 +299,7 @@ async function lock(){try{if('wakeLock' in navigator&&!wake){wake=await navigato
 function unlock(){try{wake&&wake.release()}catch(e){}wake=null}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;
   if(run&&run.state==='run')lock();
-  renderPlan(); // 日付が変わっていたら「今日のメニュー」を更新
+  renderPlan();renderCoach(); // 日付が変わっていたら「今日のメニュー」とアドバイスを更新
 });
 
 function start(){
@@ -342,7 +368,8 @@ function toggleRoute(li,r){
   cv=document.createElement('canvas');cv.className='rt';cv.setAttribute('aria-label','この記録のルート');li.appendChild(cv);
   drawRoute(cv,r.pts||[],'ルートがありません（「編集」から地図で描けます）');
 }
-function renderHist(){
+function renderHist(){listHist();draw();renderPlan();renderCoach()}  // 履歴が変わったら関係する表示をまとめて更新
+function listHist(){
   const ul=$('hist');ul.innerHTML='';
   if(!history.length){ul.innerHTML='<li class="empty" style="display:block">まだ記録はありません。</li>';$('total').textContent='';return}
   const tot=history.reduce((a,r)=>a+r.dist,0);
@@ -435,7 +462,7 @@ async function importHistory(e){
   render();
   hmsg(planNote+`${added}件を追加しました。`+(dup?`同じ記録${dup}件は重複のため飛ばしました。`:'')+(bad?`壊れていた${bad}件は読み込めませんでした。`:''),!added&&!dup);
 }
-function render(){renderBtns();renderLive();draw();renderHist();renderPlan()}
+function render(){renderBtns();renderLive();renderHist()}
 
 /* ---------- あとから追加・編集 ---------- */
 let mPts=[], mUndo=[], mEdit=null, mSel=-1, mMode='end', lmap=null, lline=null, lhandles=null;
@@ -790,7 +817,7 @@ function makePlan(){
   const set=readPlanForm();if(!set)return;
   const np=genPlan(set), td=ymd(new Date());
   if(plan)np.days=plan.days.filter(x=>x.d<td).concat(np.days);  // 過去の分は実績と照らせるよう残す
-  plan=np;save(KEY_PLAN,plan);renderPlan();
+  plan=np;save(KEY_PLAN,plan);renderPlan();renderCoach();
   $('pSetWrap').open=false;pmsg('');
   $('plan').scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -856,6 +883,142 @@ function renderPlan(){
   });
 }
 
+/* ---------- コーチのアドバイス（記録とメニューから自動で判断。通信なしで動く） ---------- */
+function renderCoach(){
+  if(!$('coach')||!plan)return;
+  const td=ymd(new Date()), today=parseYmd(td), tomorrow=addDays(today,1);
+  const runs=history.filter(r=>r.dist>=500&&r.ms>0);
+  const between=(a,b)=>runs.filter(r=>r.start>=a.getTime()&&r.start<b.getTime());  // a以上b未満
+  const km=list=>list.reduce((s,r)=>s+r.dist,0)/1000;
+  const last7=between(addDays(today,-6),tomorrow), last28=between(addDays(today,-27),tomorrow);
+  const k7=km(last7), k28=km(last28);
+  const longest=list=>list.reduce((m,r)=>Math.max(m,r.dist),0)/1000;
+  const long28=longest(last28), long42=longest(between(addDays(today,-41),tomorrow));
+  const pace28=k28>0?last28.reduce((s,r)=>s+r.ms,0)/1000/k28:null;
+  $('aAsOf').textContent=`${today.getMonth()+1}/${today.getDate()}時点`;
+
+  // 数字のまとめ
+  const tile=(k,v,u,s)=>`<div class="ast"><div class="k">${k}</div><div class="v">${v}<small>${u}</small></div><div class="s">${s}</div></div>`;
+  $('aStats').innerHTML=
+    tile('直近7日',k7.toFixed(1),'km',`${last7.length}回`)+
+    tile('週平均',(k28/4).toFixed(1),'km','直近4週')+
+    tile('最長',long28.toFixed(1),'km','直近4週')+
+    tile('平均ペース',pace28?fmtPace(pace28):'--','/km','直近4週');
+
+  // 週ごとの距離（月曜はじまり・8週）
+  const thisMon=addDays(today,-((today.getDay()+6)%7));
+  const planKm={};plan.days.forEach(x=>{if(x.type==='rest')return;const d=parseYmd(x.d),k=ymd(addDays(d,-((d.getDay()+6)%7)));planKm[k]=(planKm[k]||0)+x.km});
+  const weeks=[];for(let i=7;i>=0;i--){const mon=addDays(thisMon,-7*i);weeks.push({mon,km:km(between(mon,addDays(mon,7))),plan:planKm[ymd(mon)]||0,current:i===0})}
+  drawWeekly($('aChart'),weeks);
+
+  // アドバイス（注意 → 次の一歩 → 時期の助言 → よい点 の順に並べる）
+  const items=[];const add=(lv,html,pri)=>items.push({lv,html,pri});
+  const race=parseYmd(plan.settings.race), left=daysBetween(today,race), RP=plan.goal/HALF;
+  const act=actualByDay();
+  if(!runs.length){
+    add('next','まだ記録がありません。まずは今日のメニューか、30分ほどの楽なジョギングから始めましょう。走った分だけ、ここに分析とアドバイスが出ます。',2);
+  }else{
+    // 急に増やしすぎ
+    // 比べるのは記録を始めてからの週だけ（最大3週）。大会直後と、メニューどおりの増加は除く
+    const firstDay=parseYmd(ymd(new Date(runs.reduce((m,r)=>Math.min(m,r.start),Infinity))));
+    const nBase=Math.min(3,Math.floor(daysBetween(firstDay,addDays(today,-6))/7));
+    const kBase=nBase>0?km(between(addDays(today,-6-7*nBase),addDays(today,-6)))/nBase:0;
+    const plan7=plan.days.filter(x=>x.type!=='rest'&&x.type!=='race'&&x.d<=td&&daysBetween(parseYmd(x.d),today)<7).reduce((a,x)=>a+x.km,0);
+    const raced=left<=0&&left>-7;
+    if(nBase>=1&&kBase>0&&k7>=10&&k7>kBase*1.5&&k7>plan7*1.15&&!raced)
+      add('warn',`直近7日は<b>${k7.toFixed(1)}km</b>で、それまでの週平均（${kBase.toFixed(1)}km）の<b>${Math.round(k7/kBase*100)}%</b>です。距離を急に増やすと故障しやすくなります。次の2〜3日はイージー走か休養にしましょう。`,10);
+    // 連続で走りすぎ
+    let streak=0;for(let d=new Date(act[td]?today:addDays(today,-1));act[ymd(d)];d=addDays(d,-1))streak++;
+    if(streak>=6)add('warn',`<b>${streak}日</b>続けて走っています。週に1〜2日の休養日を入れると疲れが抜け、故障の予防にもなります。`,9);
+    // イージー走が速すぎ
+    let fast=0,checked=0;
+    plan.days.forEach(x=>{if((x.type!=='easy'&&x.type!=='long')||x.d>td||daysBetween(parseYmd(x.d),today)>21)return;
+      const rs=runs.filter(r=>ymd(new Date(r.start))===x.d);if(!rs.length)return;
+      const pace=rs.reduce((s,r)=>s+r.ms,0)/rs.reduce((s,r)=>s+r.dist,0); // ミリ秒/m ＝ 秒/km
+      checked++;if(pace<(x.type==='easy'?RP+70:RP+50)-25)fast++});
+    if(fast>=2&&fast*2>=checked)
+      add('warn',`イージー走・ロング走の日に、予定より速く走っていることが多いです（${checked}回中${fast}回）。楽な日を楽に走ると、ペース走やインターバルの質が上がります。目安は<b>${fmtPace(RP+70)}/km</b>前後です。`,8);
+    // 予定の達成度（直近14日・昨日まで）
+    const due=plan.days.filter(x=>x.type!=='rest'&&x.type!=='race'&&x.d<td&&daysBetween(parseYmd(x.d),today)<=14);
+    const done=due.filter(x=>(act[x.d]||0)>=x.km*0.7).length;
+    if(due.length>=3){
+      const rate=done/due.length;
+      if(rate<0.5)add('warn',`直近2週間の予定<b>${due.length}回</b>のうち、できたのは<b>${done}回</b>です。今のメニューがきつすぎる可能性があります。「大会と目標の設定」で「今の1週間の距離」を実績に近い<b>${Math.max(8,Math.round(k28/4))}km</b>にして作り直すと、続けやすくなります。`,7);
+      else if(rate>=0.8)add('good',`直近2週間の予定<b>${due.length}回</b>のうち<b>${done}回</b>をこなせています。この調子で続けましょう。`,2);
+    }
+    // しばらく走っていない
+    const lastRun=runs.reduce((m,r)=>Math.max(m,r.start),0), gap=daysBetween(parseYmd(ymd(new Date(lastRun))),today);
+    if(gap>=5&&left>=0)add('next',`最後に走ってから<b>${gap}日</b>空いています。再開はいきなりメニューどおりではなく、イージー走を短めから始めて体を慣らしましょう。`,6);
+    // ロング走の経験
+    if(left>=7&&left<=24&&long42<12)
+      add('next',`本番までに、<b>12〜15km</b>を一度走っておくと安心です（最近の最長は${long42.toFixed(1)}km）。次のロング走の日に、ゆっくりで良いので挑戦しましょう。`,5);
+    else if(long42>=15&&left>=0)
+      add('good',`最近<b>${long42.toFixed(1)}km</b>を走れています。21.1kmを走りきる土台ができています。`,3);
+    // 予想タイムと目標
+    const pred=predictHalf();
+    const raceRun=left<0?runs.filter(r=>ymd(new Date(r.start))===plan.settings.race&&r.dist>=18000).sort((a,b)=>b.dist-a.dist)[0]:null;
+    if(raceRun){
+      const t=raceRun.ms/1000*Math.pow(HALF*1000/raceRun.dist,1.0);
+      add('good',`大会の記録は<b>${fmtHMS(t)}</b>（${fmtPace(t/HALF)}/km）でした。`+(plan.goalSrc==='goal'?(t<=plan.goal?`目標の${fmtHMS(plan.goal)}を達成しました。おめでとうございます。`:`目標の${fmtHMS(plan.goal)}まであと${Math.ceil((t-plan.goal)/60)}分でした。この経験は次の大会に必ず活きます。`):'完走おめでとうございます。'),8);
+    }else if(pred&&plan.goalSrc==='goal'){
+      const diff=pred-plan.goal;
+      if(diff<=0)add('good',`今の記録から予想するハーフのタイムは<b>${fmtHMS(pred)}</b>です。目標の${fmtHMS(plan.goal)}に届く力がついています。`,4);
+      else if(diff<=plan.goal*0.05)add('next',`予想タイムは<b>${fmtHMS(pred)}</b>で、目標まであと<b>${Math.ceil(diff/60)}分</b>です。ペース走とインターバルを予定どおりこなせば届く範囲です。`,4);
+      else add('next',`予想タイムは<b>${fmtHMS(pred)}</b>で、目標の${fmtHMS(plan.goal)}より${Math.ceil(diff/60)}分遅い見込みです。目標を<b>${fmtHMS(Math.ceil(pred/300)*300)}</b>前後に見直すと、無理のないペースで練習できます。`,4);
+    }else if(pred)add('next',`今の記録から予想するハーフのタイムは<b>${fmtHMS(pred)}</b>です。「大会と目標の設定」で目標タイムを入れると、練習のペースがより正確になります。`,3);
+    // 距離の伸び
+    const full=weeks.slice(4,7).map(w=>w.km); // 先週までの3週
+    if(full[0]>0&&full[1]>=full[0]&&full[2]>=full[1]&&full[2]<=full[0]*1.6&&full[2]>full[0])
+      add('good',`3週続けて、距離を少しずつ伸ばせています（${full.map(v=>v.toFixed(0)).join(' → ')}km）。無理のない増やし方です。`,2);
+    if(runs.length<4)add('tip','記録が増えるほど、アドバイスが詳しくなります。',0);
+  }
+  // 大会までの時期ごとの助言
+  if(left<0&&left>=-14)add('info','大会お疲れさまでした。終わってから1〜2週間は、距離を普段の半分ほどにして回復を優先しましょう。次の大会が決まったら、設定から新しいメニューを作れます。',5);
+  else if(left===0)add('info',`今日は大会当日です。最初の5kmは目標ペース（<b>${fmtPace(RP)}/km</b>）より少し遅めに入り、10kmを過ぎて余裕があれば上げましょう。給水は早めに少しずつ。`,9);
+  else if(left>=1&&left<=6)add('info',`レース週です。疲れを残さないことが最優先です。前日は炭水化物を多めにとり、早めに寝ましょう。新しいシューズやウェアは本番で試さないのが鉄則です。`,6);
+  else if(left>=7&&left<=13)add('info','調整期です。練習の量を減らしても力は落ちません。ここで追い込まず、メニューの距離を守って疲れを抜きましょう。',4);
+  else if(left>13)add('info',`強化期です（大会まで${left}日）。いちばん大事なのは週1回のロング走、次がペース走・インターバルです。ほかの日は楽に走りましょう。`,1);
+
+  const order={warn:0,next:1,info:2,good:3,tip:4};
+  items.sort((a,b)=>order[a.lv]-order[b.lv]||b.pri-a.pri);
+  let shown=items.slice(0,5);
+  const good=items.find(x=>x.lv==='good');
+  if(good&&!shown.includes(good))shown=shown.slice(0,4).concat(good);  // よい点は必ず1つ伝える
+  // 次の練習
+  if(left>=0){
+    const nx=plan.days.find(x=>x.type!=='rest'&&(x.d>td||(x.d===td&&(act[td]||0)<x.km*0.7)));
+    if(nx)shown.push({lv:'next',html:`次の練習は<b>${mdw(parseYmd(nx.d))}</b>の「${nx.title}」です。${nx.detail}。`});
+  }
+  const label={warn:'注意',next:'次の一歩',info:'今の時期',good:'よい点',tip:'ヒント'};
+  $('aList').innerHTML=shown.map(x=>`<li><span class="lv ${x.lv}">${label[x.lv]}</span><span class="tx">${x.html}</span></li>`).join('');
+}
+
+/* 週ごとの距離の棒グラフ。予定は横線で重ねる */
+function drawWeekly(cv,weeks){
+  const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;if(!w)return;
+  cv.width=w*dpr;cv.height=h*dpr;const g=cv.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,w,h);
+  const cs=getComputedStyle(document.documentElement),col=n=>cs.getPropertyValue(n).trim();
+  const top=16,bottom=20,left=34,right=2,ph=h-top-bottom;
+  const maxV=Math.max(10,...weeks.map(x=>Math.max(x.km,x.plan)));
+  const step=maxV>60?20:maxV>30?10:5, yMax=Math.ceil(maxV/step)*step, y=v=>top+ph-ph*v/yMax;
+  g.font='10px '+col('--mono');g.textBaseline='middle';
+  g.strokeStyle=col('--line');g.lineWidth=1;g.fillStyle=col('--muted');g.textAlign='left';
+  for(let v=step;v<=yMax;v+=step){g.beginPath();g.moveTo(left,y(v));g.lineTo(w-right,y(v));g.stroke();g.fillText(v+'km',0,y(v))}
+  const slot=(w-left-right)/weeks.length,bw=Math.min(28,slot*0.56);
+  weeks.forEach((x,i)=>{
+    const cx=left+slot*i+slot/2;
+    g.globalAlpha=x.current?0.55:1;g.fillStyle=col('--accent');
+    if(x.km>0){const bh=Math.max(2,ph*x.km/yMax);g.beginPath();g.roundRect?g.roundRect(cx-bw/2,y(x.km),bw,bh,[3,3,0,0]):g.rect(cx-bw/2,y(x.km),bw,bh);g.fill()}
+    g.globalAlpha=1;
+    if(x.plan>0){g.strokeStyle=col('--fg');g.lineWidth=2;g.beginPath();g.moveTo(cx-bw/2-3,y(x.plan));g.lineTo(cx+bw/2+3,y(x.plan));g.stroke()}
+    g.fillStyle=col('--fg');g.textAlign='center';
+    if(x.km>0)g.fillText(x.km.toFixed(0),cx,Math.min(y(x.km),x.plan>0?y(x.plan):Infinity)-8);  // 予定の線と重ならない位置に
+    g.fillStyle=x.current?col('--accent'):col('--muted');
+    g.fillText(x.current?'今週':`${x.mon.getMonth()+1}/${x.mon.getDate()}`,cx,h-bottom/2);
+  });
+  g.strokeStyle=col('--line');g.beginPath();g.moveTo(left,top+ph+0.5);g.lineTo(w-right,top+ph+0.5);g.stroke();
+}
+
 // 初回は 2026/11/28 のハーフマラソンに合わせて作っておく（設定から変更可）
 if(!plan){
   const race='2026-11-28';
@@ -899,8 +1062,10 @@ $('modeIns').onclick=()=>setMode('ins');
 if(run){if(run.state==='run'){startWatch();lock()}$('msg').textContent='前回の記録の続きです。'}
 render();
 let shownDay=new Date().toDateString();
-tick=setInterval(()=>{renderLive();const d=new Date().toDateString();if(d!==shownDay){shownDay=d;renderPlan()}},1000);
-window.addEventListener('resize',draw);
+tick=setInterval(()=>{renderLive();const d=new Date().toDateString();if(d!==shownDay){shownDay=d;renderPlan();renderCoach()}},1000);
+window.addEventListener('resize',()=>{draw();renderCoach()});
+// 画面のライト／ダークが切り替わったら、色を合わせて描き直す
+try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{draw();renderCoach();document.querySelectorAll('#hist canvas.rt').forEach(c=>c.remove())})}catch(e){}
 })();
 </script>
 </body>
