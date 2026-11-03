@@ -95,6 +95,8 @@ button:disabled{opacity:.45;cursor:default}
 li .n,li .d{cursor:pointer}
 li .rtl{color:var(--accent);margin-left:6px}
 li canvas.rt{grid-column:1/-1;height:170px;margin-top:8px}
+li canvas.sp{grid-column:1/-1;height:130px;margin-top:6px;background:transparent}
+li .spcap{grid-column:1/-1;font-size:12px;color:var(--muted);font-family:var(--mono);font-variant-numeric:tabular-nums}
 .exp{display:flex;flex-direction:column;gap:8px}
 .exp button{padding:12px;font-size:14px}
 /* 練習メニュー */
@@ -163,7 +165,7 @@ canvas#mPrev{height:170px}
     <div class="row">
       <div class="stat"><div class="k">時間</div><div class="v" id="time">0:00:00</div></div>
       <div class="stat"><div class="k">平均ペース</div><div class="v" id="pace">--'--"</div></div>
-      <div class="stat"><div class="k">速度</div><div class="v" id="speed">0.0</div></div>
+      <div class="stat"><div class="k">今の時速</div><div class="v" id="speed">--</div></div>
     </div>
     <canvas id="map" aria-label="走行ルート"></canvas>
     <div class="cap" id="mapCap"></div>
@@ -293,8 +295,31 @@ function fmtT(ms){const s=Math.floor(ms/1000);return `${Math.floor(s/3600)}:${St
 function fmtP(ms,m){if(m<50)return `--'--"`;const spk=ms/1000/(m/1000);if(!isFinite(spk)||spk>5999)return `--'--"`;
   return `${Math.floor(spk/60)}'${String(Math.round(spk%60)).padStart(2,'0')}"`}
 
+/* 時速の記録：100m 進むごとに、その100mの時速（0.1km/h 単位の整数）を1つだけ保存する。
+   ハーフでも約200個の数字で済み、地点を間引いても速度の細かさは失われない */
+const SPD_STEP=100;
+let recent=[], devSpeed=null;  // 「今の時速」表示用（保存しない）
+function recordSpeed(){
+  if(!run.spd){run.spd=[];run.spdNext=SPD_STEP;run.spdT=0}
+  if(run.dist<run.spdNext)return;
+  const n=Math.floor((run.dist-run.spdNext)/SPD_STEP)+1, now=elapsed(), dt=(now-run.spdT)/1000;
+  const kmh=dt>0?Math.min(40,n*SPD_STEP/dt*3.6):0;
+  for(let i=0;i<n;i++)run.spd.push(Math.round(kmh*10));
+  run.spdT=now;run.spdNext+=n*SPD_STEP;
+}
+function currentKmh(){
+  if(!run||run.state!=='run')return null;
+  const now=Date.now();
+  if(devSpeed&&now-devSpeed.t<5000)return devSpeed.v*3.6;
+  recent=recent.filter(x=>now-x[0]<=20000);
+  if(recent.length<2)return null;
+  const a=recent[0],b=recent[recent.length-1],dt=(b[0]-a[0])/1000;
+  return dt>=5?(b[1]-a[1])/dt*3.6:null;
+}
 function onPos(p){
   const c=p.coords; lastFix=Date.now();
+  // 端末が速度を返すとき（GPSのドップラー計測）は、精度が良ければそれを「今の時速」に使う
+  if(run&&run.state==='run'&&c.speed!=null&&!isNaN(c.speed)&&c.accuracy<=20)devSpeed={v:Math.max(0,c.speed),t:Date.now()};
   if(gpsErr){gpsErr=false;$('msg').textContent=''}
   const ok=c.accuracy<=MAX_ACC;
   $('gpsDot').className='dot '+(ok?'ok':'bad');
@@ -308,7 +333,9 @@ function onPos(p){
     if(d<Math.max(MIN_STEP,Math.min(c.accuracy*0.4,15)))return;
     if(dt>0&&d/dt>MAX_SPEED)return;
     run.dist+=d;
+    recordSpeed();
   }
+  recent.push([Date.now(),run.dist]);
   run.pts.push(pt); save(KEY_CUR,run); draw(); $('gpsTxt').textContent=gpsLabel();
 }
 function onErr(e){
@@ -331,19 +358,22 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState!==
 
 function start(){
   $('msg').textContent='';
-  run={start:Date.now(),pts:[],dist:0,activeMs:0,segStart:Date.now(),state:'run'};
+  run={start:Date.now(),pts:[],dist:0,activeMs:0,segStart:Date.now(),state:'run',spd:[],spdNext:SPD_STEP,spdT:0};recent=[];devSpeed=null;
   save(KEY_CUR,run); startWatch(); lock(); render();
 }
 function pause(){
   run.activeMs+=Date.now()-run.segStart; run.segStart=null; run.state='pause';
   const l=run.pts[run.pts.length-1]; if(l)l[3]=1; // 次の点とは繋げない
+  recent=[];devSpeed=null;
   save(KEY_CUR,run); unlock(); render();
 }
-function resume(){run.segStart=Date.now();run.state='run';save(KEY_CUR,run);startWatch();lock();render()}
+function resume(){recent=[];devSpeed=null;run.segStart=Date.now();run.state='run';save(KEY_CUR,run);startWatch();lock();render()}
 function finish(){
   if(run.state==='run'){run.activeMs+=Date.now()-run.segStart}
   // 形が変わらない範囲（3m）で点を間引いて保存容量を節約する。距離は間引く前の値を使う
-  history.unshift({start:run.start,dist:Math.round(run.dist),ms:run.activeMs,pts:simplify(run.pts,3)});
+  const rec={start:run.start,dist:Math.round(run.dist),ms:run.activeMs,pts:simplify(run.pts,3)};
+  if(run.spd&&run.spd.length)rec.spd=run.spd.slice();
+  history.unshift(rec);
   if(!save(KEY_H,history)){history.shift();$('msg').textContent='記録を保存できませんでした。容量を空けてから、もう一度「終了して保存」を押してください。';render();return}
   del(KEY_CUR); run=null; stopWatch(); unlock(); render();
 }
@@ -364,7 +394,7 @@ function renderLive(){
   $('dist').innerHTML=(m/1000).toFixed(2)+'<small>km</small>';
   $('time').textContent=fmtT(ms);
   $('pace').textContent=fmtP(ms,m);
-  $('speed').textContent=ms>0?(m/1000/(ms/3600000)).toFixed(1):'0.0';
+  const v=currentKmh();$('speed').textContent=v==null?'--':v.toFixed(1);
   if(lastFix&&Date.now()-lastFix>15000&&run&&run.state==='run'){$('gpsDot').className='dot bad';$('gpsTxt').textContent='GPS信号待ち'}
 }
 function draw(){
@@ -392,9 +422,56 @@ function drawRoute(cv,pts,emptyText){
 }
 function toggleRoute(li,r){
   let cv=li.querySelector('canvas.rt');
-  if(cv){cv.remove();return}
+  if(cv){li.querySelectorAll('canvas.rt,canvas.sp,.spcap').forEach(e=>e.remove());return}
   cv=document.createElement('canvas');cv.className='rt';cv.setAttribute('aria-label','この記録のルート');li.appendChild(cv);
   drawRoute(cv,r.pts||[],'ルートがありません（「編集」から地図で描けます）');
+  const pf=speedProfile(r);
+  if(pf){
+    const sp=document.createElement('canvas');sp.className='sp';sp.setAttribute('aria-label','距離ごとの時速');li.appendChild(sp);
+    const cap=document.createElement('div');cap.className='spcap';li.appendChild(cap);
+    const st=drawSpeed(sp,pf);
+    cap.textContent=`時速：平均 ${st.avg.toFixed(1)}km/h・最高 ${st.max.toFixed(1)}km/h・最低 ${st.min.toFixed(1)}km/h`+(pf.measured?'（100mごと）':'（ルートの時刻から計算）');
+  }
+}
+/* 100mごとの時速（km/h）の列。記録時に保存した値があればそれを、なければルートの時刻から計算 */
+function speedProfile(r){
+  if(r.spd&&r.spd.length>=3)return {v:r.spd.map(x=>x/10),measured:true};
+  if(r.manual||!r.pts||r.pts.length<3)return null;
+  const v=[];let acc=0,next=SPD_STEP,tPrev=null,dPrev=0;
+  for(let i=1;i<r.pts.length;i++){
+    const a=r.pts[i-1],b=r.pts[i];
+    if(a[3]||a[2]==null||b[2]==null||b[2]<=a[2])continue;  // 一時停止の区切りや時刻なしは飛ばす
+    const d=hav(a,b),t0=a[2],t1=b[2];
+    if(tPrev==null){tPrev=t0;dPrev=acc}
+    while(acc+d>=next){const f=(next-acc)/d,t=t0+(t1-t0)*f;
+      const dt=(t-tPrev)/1000;v.push(dt>0?Math.min(40,(next-dPrev)/dt*3.6):0);tPrev=t;dPrev=next;next+=SPD_STEP}
+    acc+=d;
+  }
+  return v.length>=3?{v,measured:false}:null;
+}
+const harmonic=v=>v.length?v.length/v.reduce((s,x)=>s+1/Math.max(x,0.5),0):0;  // 同じ距離ごとの時速の平均
+function drawSpeed(cv,pf){
+  // GPSの揺れをならすため、前後3区間（300m）の移動平均で描く
+  const raw=pf.v, sm=raw.map((_,i)=>{const w=raw.slice(Math.max(0,i-1),i+2);return w.reduce((a,b)=>a+b,0)/w.length});
+  const avg=harmonic(raw), max=Math.max(...sm), min=Math.min(...sm);
+  const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+  cv.width=w*dpr;cv.height=h*dpr;const g=cv.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,w,h);
+  const cs=getComputedStyle(document.documentElement),col=n=>cs.getPropertyValue(n).trim();
+  const top=10,bottom=18,left=36,right=4,ph=h-top-bottom,pw=w-left-right;
+  const lo=Math.max(0,Math.floor(min-1)),hi=Math.ceil(max+1),y=v=>top+ph-(v-lo)/(hi-lo)*ph,x=i=>left+pw*(i+0.5)/sm.length;
+  g.font='10px '+col('--mono');g.textBaseline='middle';g.fillStyle=col('--muted');g.strokeStyle=col('--line');g.lineWidth=1;
+  const step=hi-lo>8?4:2;
+  for(let v=Math.ceil(lo/step)*step;v<=hi;v+=step){g.beginPath();g.moveTo(left,y(v));g.lineTo(w-right,y(v));g.stroke();g.textAlign='left';g.fillText(v+'km/h',0,y(v))}
+  // 面＋線
+  g.beginPath();g.moveTo(x(0),y(lo));sm.forEach((v,i)=>g.lineTo(x(i),y(v)));g.lineTo(x(sm.length-1),y(lo));g.closePath();
+  g.globalAlpha=0.18;g.fillStyle=col('--accent');g.fill();g.globalAlpha=1;
+  g.beginPath();sm.forEach((v,i)=>i?g.lineTo(x(i),y(v)):g.moveTo(x(i),y(v)));g.strokeStyle=col('--accent');g.lineWidth=2;g.stroke();
+  // 平均の点線
+  g.setLineDash([4,4]);g.strokeStyle=col('--fg');g.lineWidth=1;g.beginPath();g.moveTo(left,y(avg));g.lineTo(w-right,y(avg));g.stroke();g.setLineDash([]);
+  // 距離の目盛り（km）
+  const km=sm.length*SPD_STEP/1000,ks=km>12?5:km>5?2:1;g.fillStyle=col('--muted');g.textAlign='center';
+  for(let k=ks;k<km;k+=ks)g.fillText(k+'km',left+pw*k/km,h-bottom/2);
+  return {avg,max,min};
 }
 function renderHist(){listHist();draw();renderPlan();renderCoach()}  // 履歴が変わったら関係する表示をまとめて更新
 function listHist(){
@@ -473,6 +550,7 @@ function validRecord(r){
   const pts=Array.isArray(r.pts)?r.pts.filter(p=>Array.isArray(p)&&isFinite(p[0])&&isFinite(p[1])).map(p=>{
     const q=[+p[0],+p[1],isFinite(p[2])&&p[2]!==null?+p[2]:null];if(p[3])q[3]=1;return q}):[];
   const out={start,dist:Math.round(dist),ms:Math.round(ms),pts};
+  if(Array.isArray(r.spd)&&r.spd.length)out.spd=r.spd.slice(0,5000).map(v=>Math.max(0,Math.min(600,Math.round(+v)||0)));
   if(r.manual)out.manual=true;if(r.edited)out.edited=true;
   if(typeof r.id==='string'&&/^r[A-Za-z0-9_-]{1,60}$/.test(r.id))out.id=r.id;
   return out;
@@ -994,6 +1072,14 @@ function renderCoach(){
       add('next',`本番までに、<b>12〜15km</b>を一度走っておくと安心です（最近の最長は${long42.toFixed(1)}km）。次のロング走の日に、ゆっくりで良いので挑戦しましょう。`,5);
     else if(long42>=15&&left>=0)
       add('good',`最近<b>${long42.toFixed(1)}km</b>を走れています。21.1kmを走りきる土台ができています。`,3);
+    // 長い距離での後半の失速（記録した時速から）
+    const lr=runs.filter(r=>r.dist>=8000&&daysBetween(parseYmd(ymd(new Date(r.start))),today)<=21).sort((a,b)=>b.start-a.start).map(r=>({r,pf:speedProfile(r)})).find(x=>x.pf&&x.pf.v.length>=40);
+    if(lr){
+      const v=lr.pf.v,h=Math.floor(v.length/2),v1=harmonic(v.slice(0,h)),v2=harmonic(v.slice(h)),ch=(v2-v1)/v1,dd=new Date(lr.r.start);
+      const lbl=`${dd.getMonth()+1}/${dd.getDate()}の${(lr.r.dist/1000).toFixed(1)}km`;
+      if(ch<-0.08)add('next',`${lbl}では、後半に時速が<b>${v1.toFixed(1)}→${v2.toFixed(1)}km/h</b>（${fmtPace(3600/v1)}→${fmtPace(3600/v2)}/km）に落ちています。本番でも後半に失速しやすいので、長い距離は前半を<b>${(v2*1.02).toFixed(1)}km/h（${fmtPace(3600/(v2*1.02))}/km）</b>くらいに抑えて入りましょう。`,6);
+      else if(ch>-0.03)add('good',`${lbl}では、前半 ${v1.toFixed(1)}km/h・後半 ${v2.toFixed(1)}km/h と、最後までペースを保てています。本番でもこの走り方が理想です。`,3);
+    }
     // 予想タイムと目標
     const pred=predictHalf();
     const raceRun=left<0?runs.filter(r=>ymd(new Date(r.start))===plan.settings.race&&r.dist>=18000).sort((a,b)=>b.dist-a.dist)[0]:null;
