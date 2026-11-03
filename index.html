@@ -21,9 +21,12 @@
   --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root{
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0f1a17; --surface:#16241f; --fg:#e6f0ec; --muted:#93a8a0; --line:#25372f;
   --accent:#2fd3a4; --accent-fg:#06231a; --warn:#fb923c; --track:#2fd3a4; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1a17; --surface:#16241f; --fg:#e6f0ec; --muted:#93a8a0; --line:#25372f;
+  --accent:#2fd3a4; --accent-fg:#06231a; --warn:#fb923c; --track:#2fd3a4; color-scheme:dark}
 *{box-sizing:border-box}
 [hidden]{display:none!important}  /* 閉じている欄を確実に隠す */
 html,body{margin:0}
@@ -136,14 +139,22 @@ ul.advice li{display:grid;grid-template-columns:4.6em 1fr;gap:10px;align-items:s
 .lv.good{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
 .advice .tx{font-size:14px;line-height:1.65}
 .advice .tx b{font-family:var(--mono);font-variant-numeric:tabular-nums}
-.s-ok{color:var(--accent);font-weight:700} .s-part{color:var(--warn);font-weight:600} .s-miss{color:var(--muted)}
+.s-ok{color:var(--accent);font-weight:700}
+.art .big,.art .meter>.row{display:none}
+.art #msg:empty{display:none}
+.note{font-size:13px;line-height:1.6;color:var(--muted);background:var(--bg);border-radius:10px;padding:12px}
+.note b{color:var(--fg)}
+canvas#mPrev{height:170px}
+.ai{display:flex;flex-direction:column;gap:8px}
+.ai button{padding:12px;font-size:14px}
+.aiout{font-size:14px;line-height:1.7;white-space:pre-wrap;background:var(--bg);border-radius:10px;padding:12px} .s-part{color:var(--warn);font-weight:600} .s-miss{color:var(--muted)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>ジョグログ</h1>
-    <div class="gps"><span class="dot" id="gpsDot"></span><span id="gpsTxt">GPS待機中</span></div>
+    <div class="gps" id="gpsChip"><span class="dot" id="gpsDot"></span><span id="gpsTxt">GPS待機中</span></div>
   </header>
   <div class="msg" id="storeWarn" role="alert" hidden></div>
 
@@ -188,6 +199,10 @@ ul.advice li{display:grid;grid-template-columns:4.6em 1fr;gap:10px;align-items:s
     <canvas id="aChart" aria-label="週ごとの走行距離"></canvas>
     <div class="legend"><span><i></i>走った距離</span><span><i class="pl"></i>メニューの予定</span></div>
     <ul class="advice" id="aList"></ul>
+    <div class="ai" id="aiBox" hidden>
+      <button id="aiBtn">Claudeにくわしく相談する</button>
+      <div class="aiout" id="aiOut" hidden></div>
+    </div>
   </section>
 
   <div class="histhead"><h2>履歴</h2><button class="small" id="addBtn">＋ あとから追加</button></div>
@@ -207,6 +222,7 @@ ul.advice li{display:grid;grid-template-columns:4.6em 1fr;gap:10px;align-items:s
       <div class="maptools"><button id="undoPt">1つ戻す</button><button id="delPt" disabled>選んだ点を削除</button><button id="clearPt">全部消す</button><button id="hereBtn">現在地へ</button></div>
       <p class="hint">地図をタップすると点が増えます。点はドラッグで動かせ、タップで選ぶと削除できます。「途中に挿入」にすると、タップした場所にいちばん近い区間に点が入ります。</p>
     </div>
+    <canvas id="mPrev" aria-label="この記録のルート" hidden></canvas>
     <div class="form">
       <label for="fStart">開始日時<input type="datetime-local" id="fStart"></label>
       <label for="fDist">距離 (km)<input type="number" id="fDist" step="0.01" min="0" inputmode="decimal" placeholder="ルートを描くと自動で入ります"></label>
@@ -230,7 +246,7 @@ ul.advice li{display:grid;grid-template-columns:4.6em 1fr;gap:10px;align-items:s
     <button id="expShare" hidden>共有して保存（Googleドライブ・メールなど）</button>
   </div>
   <div class="msg" id="hMsg"></div>
-  <p class="hint">機種変更やブラウザを替えるときは、「履歴を書き出す」で保存したファイルを、移行先で「履歴を読み込む」から選んでください。今ある記録は消えず、同じ記録は重複しません。</p>
+  <p class="hint" id="ioHint">機種変更やブラウザを替えるときは、「履歴を書き出す」で保存したファイルを、移行先で「履歴を読み込む」から選んでください。今ある記録は消えず、同じ記録は重複しません。</p>
   <p class="hint" id="swStatus"></p>
 </div>
 
@@ -243,11 +259,22 @@ const MAX_SPEED=12;    // これを超える瞬間速度は飛びとみなす (m
 
 const $=id=>document.getElementById(id);
 const load=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}};
-/* 保存に失敗したら（容量不足など）黙って消えないよう、画面上部で知らせる */
-const save=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){
+// Claude の Artifact として開いているか（Artifact 用に書き出したファイルだけが true にする）
+const ART=!!window.JOGLOG_ARTIFACT;
+const cloud={col:null,ready:false,known:new Map(),synced:new Set(load('joglog.synced.v1',[])),queue:Promise.resolve(),timer:null};
+const saveSynced=()=>{try{localStorage.setItem('joglog.synced.v1',JSON.stringify([...cloud.synced]))}catch(e){}};
+const recKey=r=>`${r.start}|${r.dist}|${r.ms}`;
+/* 保存に失敗したら（容量不足など）黙って消えないよう、画面上部で知らせる。
+   Artifact では Claude のアカウントにも保存する */
+const save=(k,v)=>{
+  if(k===KEY_H)ensureIds();
+  let ok=true;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){ok=false}
+  if(ART&&k!==KEY_CUR)cloudQueue();
+  if(ok||(ART&&cloud.ready))return true;
   const w=document.getElementById('storeWarn');
   if(w){w.hidden=false;w.textContent='保存できませんでした。端末の保存容量がいっぱいです。「履歴を書き出す」でバックアップしてから、古い記録を削除してください。'}
-  return false}};
+  return false};
+function ensureIds(){history.forEach(r=>{if(!r.id)r.id='r'+r.start.toString(36)+Math.random().toString(36).slice(2,7)})}
 // ブラウザが自動でデータを消さないよう依頼する（対応ブラウザのみ）
 try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
 const del=k=>{try{localStorage.removeItem(k)}catch(e){}};
@@ -326,6 +353,7 @@ let askDiscard=false;
 function renderBtns(){
   const b=$('btns'); b.innerHTML='';
   const mk=(t,cls,fn)=>{const e=document.createElement('button');e.textContent=t;e.className=cls||'';e.onclick=fn;b.appendChild(e)};
+  if(ART){b.innerHTML='<div class="note">Claudeの画面ではGPSが使えないため、ここでは走りながらの記録はできません。<b>走るときはGitHub版（ホーム画面のアイコン）で記録</b>し、ここへは下の「履歴を読み込む」で取り込めます。距離と時間だけなら「＋ あとから追加」から入力できます。</div>';return}
   if(!run){mk('スタート','primary',start);return}
   if(askDiscard){mk('記録を破棄','danger',()=>{askDiscard=false;discard()});mk('やめる','',()=>{askDiscard=false;renderBtns()});return}
   if(run.state==='run'){mk('一時停止','',pause);mk('終了して保存','primary',finish)}
@@ -388,7 +416,7 @@ function listHist(){
     rm.onclick=()=>{a.innerHTML='';const y=document.createElement('button');y.textContent='削除する';y.className='danger';
       y.onclick=()=>{if(mEdit===r)closeManual();history.splice(i,1);save(KEY_H,history);renderHist()};
       const n=document.createElement('button');n.textContent='戻す';n.onclick=renderHist;a.append(y,n)};
-    a.append(gpx,rm);ul.appendChild(li);
+    if(ART)a.append(rm);else a.append(gpx,rm);ul.appendChild(li);
   });
 }
 function exportGpx(r){
@@ -413,10 +441,18 @@ const hmsg=(t,bad)=>{const m=$('hMsg');m.textContent=t||'';m.className='msg'+(ba
 function backupText(){return JSON.stringify({app:'JogLog',version:2,exportedAt:new Date().toISOString(),count:history.length,history,plan})}
 function exportHistory(){
   if(!history.length)return hmsg('書き出す記録がありません。',true);
+  if(ART)return exportToFile();
   const p=$('expPanel');p.hidden=!p.hidden;$('expShare').hidden=!canShareText();hmsg('');
 }
-function exportToFile(){
+async function exportToFile(){
   const name=`joglog-backup-${stamp(new Date())}.json`;
+  if(ART){
+    const dl=window.claude&&typeof claude.use==='function'?await claude.use('downloads'):null;
+    if(!dl)return hmsg('この画面ではファイルを保存できません。GitHub版から書き出してください。',true);
+    try{await dl.save({filename:name,data:backupText()});
+      hmsg(`「${name}」を保存しました。GitHub版で「履歴を読み込む」から選ぶと取り込めます。`)}
+    catch(e){hmsg(e&&e.code==='declined'?'保存をやめました。':'保存できませんでした。もう一度押してください。',!(e&&e.code==='declined'))}
+    return}
   downloadFile(name,backupText(),'application/json');
   $('expPanel').hidden=true;
   hmsg(isAndroid
@@ -438,6 +474,7 @@ function validRecord(r){
     const q=[+p[0],+p[1],isFinite(p[2])&&p[2]!==null?+p[2]:null];if(p[3])q[3]=1;return q}):[];
   const out={start,dist:Math.round(dist),ms:Math.round(ms),pts};
   if(r.manual)out.manual=true;if(r.edited)out.edited=true;
+  if(typeof r.id==='string'&&/^r[A-Za-z0-9_-]{1,60}$/.test(r.id))out.id=r.id;
   return out;
 }
 async function importHistory(e){
@@ -447,12 +484,12 @@ async function importHistory(e){
   const list=Array.isArray(data)?data:data&&Array.isArray(data.history)?data.history:null;
   if(!list)return hmsg('ジョグログの履歴ファイルではないようです。',true);
   // 開始時刻・距離・時間がすべて同じものだけを重複とみなす
-  const keyOf=r=>`${r.start}|${r.dist}|${r.ms}`;
+  const keyOf=recKey, ids=new Set(history.map(r=>r.id));
   const have=new Set(history.map(keyOf));
   let added=0,dup=0,bad=0;
   list.forEach(raw=>{const r=validRecord(raw);
     if(!r){bad++;return}
-    if(have.has(keyOf(r))){dup++;return}
+    if(have.has(keyOf(r))||(r.id&&ids.has(r.id))){dup++;return}
     history.push(r);have.add(keyOf(r));added++});
   history.sort((a,b)=>b.start-a.start);
   save(KEY_H,history);
@@ -483,7 +520,7 @@ function openManual(rec){
     $('mTitle').textContent='記録を編集';$('mSave').textContent='変更を保存';
     $('fStart').value=toLocal(new Date(mEdit.start));
     $('fDist').value=(mEdit.dist/1000).toFixed(2); setDuration(mEdit.ms);
-    openMap();
+    if(!ART)openMap();
   }else{
     mPts=[];
     $('mTitle').textContent='あとから記録を追加';$('mSave').textContent='履歴に保存';
@@ -491,12 +528,14 @@ function openManual(rec){
     ['fDist','fH','fM','fS'].forEach(id=>$(id).value='');
     $('mapWrap').hidden=true;
   }
-  refreshLayers(); updateTools();
+  refreshLayers(); updateTools(); showPrev();
   $('manual').scrollIntoView({behavior:'smooth',block:'start'});
 }
-function closeManual(){$('manual').hidden=true;mPts=[];mEdit=null;mSel=-1;mmsg('')}
+function showPrev(){const c=$('mPrev');c.hidden=!ART||mPts.length<2;if(!c.hidden)drawRoute(c,mPts,'')}
+function closeManual(){$('mPrev').hidden=true;$('manual').hidden=true;mPts=[];mEdit=null;mSel=-1;mmsg('')}
 function updateTools(){$('delPt').disabled=mSel<0;$('undoPt').disabled=!mUndo.length;$('clearPt').disabled=!mPts.length}
 function onRouteChanged(){
+  showPrev();
   $('fDist').value=mPts.length>1?(routeDist(mPts)/1000).toFixed(2):(mEdit?$('fDist').value:'');
   refreshLayers(); updateTools();
 }
@@ -704,7 +743,8 @@ function saveManual(){
     retime(pts,start,ms,km);
   }
   const rec={start,dist:Math.round(km*1000),ms,pts};
-  if(mEdit){Object.assign(mEdit,rec,{edited:true})}
+  if(mEdit){const cur=history.find(r=>r===mEdit||(mEdit.id&&r.id===mEdit.id));
+    if(cur)Object.assign(cur,rec,{edited:true});else history.push(Object.assign(mEdit,rec,{edited:true}))}
   else history.push(Object.assign(rec,{manual:true}));
   history.sort((a,b)=>b.start-a.start);
   save(KEY_H,history); closeManual(); renderHist();
@@ -1027,8 +1067,113 @@ if(!plan){
 }
 fillPlanForm();
 
+/* ---------- Artifact 版：記録を Claude のアカウントに保存し、ほかの端末と共有 ----------
+   1件の記録＝1つの保存単位（data/users/<自分>/r…）、練習メニューは plan。自分にしか見えない場所 */
+const setSync=t=>{const e=$('swStatus');if(e)e.textContent=t};
+const canon=r=>JSON.stringify(validRecord(r));
+function cloudQueue(){if(!cloud.ready)return;clearTimeout(cloud.timer);cloud.timer=setTimeout(syncUp,400)}
+function cloudWrite(id,fn){  // 同じ記録への書き込みは1つずつ順番に
+  cloud.queue=cloud.queue.then(fn).catch(e=>{
+    cloud.known.delete(id);  // 次の変更のときに送り直す
+    if(e&&e.code==='quota_exceeded'){const w=$('storeWarn');w.hidden=false;w.className='msg';w.textContent='Claudeのアカウントの保存容量がいっぱいです。「履歴を書き出す」でバックアップしてから、古い記録を削除してください。'}
+    else setSync('記録をClaudeのアカウントに保存できませんでした。この端末には保存済みです。次に記録を変えたときに、もう一度送ります。');
+  });
+}
+function syncUp(){
+  if(!cloud.ready)return;
+  ensureIds();
+  const ids=new Set();let shrunk=false;
+  history.forEach(r=>{
+    ids.add(r.id);
+    // 1件あたりの上限（256KB）に収まるよう、必要なら点を間引く
+    let s=canon(r),eps=3;
+    while(s.length>240000&&r.pts&&r.pts.length>2&&eps<500){r.pts=simplify(r.pts,eps);eps*=2;s=canon(r);shrunk=true}
+    if(cloud.known.get(r.id)!==s){cloud.known.set(r.id,s);const body=JSON.parse(s);cloudWrite(r.id,()=>cloud.col.doc(r.id).set(body))}
+  });
+  for(const id of [...cloud.known.keys()])
+    if(id!=='plan'&&!ids.has(id)){cloud.known.delete(id);cloud.synced.delete(id);saveSynced();cloudWrite(id,()=>cloud.col.doc(id).delete())}
+  if(plan){const s=JSON.stringify({plan});
+    if(cloud.known.get('plan')!==s){cloud.known.set('plan',s);const body=JSON.parse(s);cloudWrite('plan',()=>cloud.col.doc('plan').set(body))}}
+  if(shrunk)try{localStorage.setItem(KEY_H,JSON.stringify(history))}catch(e){}
+}
+function applyRemote(snap){
+  const remote=new Map();let rplan=null;
+  snap.docs.forEach(d=>{const v=d.data();if(!v)return;
+    if(d.id==='plan'){if(v.plan&&v.plan.settings&&Array.isArray(v.plan.days)){rplan=v.plan;cloud.known.set('plan',JSON.stringify({plan:v.plan}))}return}
+    const r=validRecord(Object.assign({},v,{id:d.id}));if(!r)return;
+    remote.set(d.id,r);cloud.known.set(d.id,JSON.stringify(r));cloud.synced.add(d.id)});
+  // ほかの端末で消された記録は、この端末からも消す
+  for(const id of [...cloud.known.keys()])if(id!=='plan'&&!remote.has(id)&&cloud.synced.has(id))cloud.known.delete(id);
+  // この端末にしかない記録（まだ送っていない分）は残して、あとで送る
+  const rkeys=new Set([...remote.values()].map(recKey));
+  const localOnly=history.filter(r=>!(r.id&&(remote.has(r.id)||cloud.synced.has(r.id)))&&!rkeys.has(recKey(r)));
+  history=[...remote.values(),...localOnly].sort((a,b)=>b.start-a.start);
+  for(const id of [...cloud.synced])if(!remote.has(id))cloud.synced.delete(id);  // 消えた記録の印は外す
+  saveSynced();
+  if(rplan&&(!plan||plan.auto||(rplan.made||0)>=(plan.made||0))){plan=rplan;fillPlanForm()}
+  cloud.ready=true;
+  try{localStorage.setItem(KEY_H,JSON.stringify(history));localStorage.setItem(KEY_PLAN,JSON.stringify(plan))}catch(e){}
+  cloudQueue();
+  render();
+  if(!snap.metadata||!snap.metadata.fromCache)
+    setSync('記録はClaudeのアカウントに保存されています。ほかの端末でこのページを開いても、同じ記録が見られます。');
+}
+async function cloudStart(){
+  if(!window.claude||typeof claude.use!=='function'){setSync('この画面では記録をアカウントに保存できません。記録はこのブラウザの中に保存されます。');return}
+  setSync('Claudeのアカウントに接続しています…');
+  const [db,user]=await Promise.all([claude.use('db'),claude.use('user')]);
+  const uid=user?await user.id():null;
+  if(!db||!uid){setSync('Claudeにサインインしていないため、記録はこのブラウザの中だけに保存されます。');return}
+  cloud.col=db.collection('data/users/'+uid);
+  let confirmed=false;
+  const t=setTimeout(()=>{if(!confirmed)setSync('Claudeのアカウントから、まだ記録を読み込めていません。通信状態を確認してください。表示中の記録は、この端末に保存されている分です。')},10000);
+  cloud.col.onSnapshot(snap=>{if(!snap.metadata||!snap.metadata.fromCache){confirmed=true;clearTimeout(t)}applyRemote(snap)},
+    e=>{clearTimeout(t);setSync('Claudeのアカウントに接続できませんでした。記録はこの端末に保存されます。ページを開き直すと、もう一度接続します。')});
+}
+
+/* ---------- Claude にくわしく相談（Artifact 版だけ） ---------- */
+function coachData(){
+  const td=ymd(new Date()), today=parseYmd(td), lines=[];
+  const runs=history.filter(r=>r.dist>=500&&r.ms>0).sort((a,b)=>b.start-a.start);
+  lines.push(`今日：${td}（${DOW[today.getDay()]}）`);
+  if(plan){lines.push(`大会：${plan.settings.race}（ハーフマラソン、あと${daysBetween(today,parseYmd(plan.settings.race))}日）`);
+    lines.push(`目標タイム：${fmtHMS(plan.goal)}（${{goal:'本人が設定',pred:'記録から予想',default:'仮の値'}[plan.goalSrc]||''}）、週の練習日数：${plan.settings.days}日`)}
+  const mon=addDays(today,-((today.getDay()+6)%7)),wk=[];
+  for(let i=7;i>=0;i--){const a=addDays(mon,-7*i),b=addDays(a,7);
+    wk.push(`${a.getMonth()+1}/${a.getDate()}週 ${(runs.filter(r=>r.start>=a.getTime()&&r.start<b.getTime()).reduce((s,r)=>s+r.dist,0)/1000).toFixed(1)}km`)}
+  lines.push('週ごとの距離（古い順、最後は今週）：'+wk.join('、'));
+  lines.push('最近の記録（新しい順）：');
+  runs.slice(0,15).forEach(r=>{const d=new Date(r.start);lines.push(`- ${d.getMonth()+1}/${d.getDate()}（${DOW[d.getDay()]}） ${(r.dist/1000).toFixed(2)}km ${fmtT(r.ms)} ペース${fmtPace(r.ms/r.dist)}/km`)});
+  if(!runs.length)lines.push('- まだ記録なし');
+  if(plan){lines.push('これから7日間のメニュー：');
+    plan.days.filter(x=>x.d>=td&&daysBetween(today,parseYmd(x.d))<7).forEach(x=>lines.push(`- ${x.d}（${DOW[parseYmd(x.d).getDay()]}） ${x.title}${x.type==='rest'?'':'：'+x.detail}`))}
+  lines.push('アプリの自動判定：'+[...document.querySelectorAll('#aList li')].map(li=>li.textContent).join(' / '));
+  return lines.join('\n');
+}
+async function askClaude(){
+  const sample=await claude.use('sample');if(!sample){$('aiBox').hidden=true;return}
+  const btn=$('aiBtn'),out=$('aiOut');
+  btn.disabled=true;out.hidden=false;out.textContent='考えています…';
+  const prompt=`あなたは市民ランナーを指導する経験豊富なランニングコーチです。次のデータをもとに、このランナーへのアドバイスを日本語で書いてください。
+書き方：
+- 【ここまでの評価】【今週やること】【気をつけること】の3つの見出しで、全体で400字程度
+- 距離・ペース・曜日など、データにある具体的な数字を使う
+- データにないことは断定しない。痛みやけがの話が出たら、無理をせず専門家に相談するよう勧める
+- #や**などの記号は使わない
+
+データ：
+${coachData()}`;
+  try{const r=await sample(prompt,{onText:({text})=>{out.textContent=text},cache:false});out.textContent=r.text}
+  catch(e){
+    if(e&&e.code==='not_granted'){out.textContent='Claudeへの相談が許可されませんでした。';$('aiBtn').hidden=true}
+    else if(e&&e.code==='rate_limited')out.textContent='いまは混み合っています。少し時間をおいてから、もう一度押してください。';
+    else out.textContent=(e&&e.text)||'相談できませんでした。もう一度押してください。';
+  }finally{btn.disabled=false;btn.textContent='もう一度相談する'}
+}
+
 /* 圏外でも起動できるようにする（https で開いたときだけ有効） */
-if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
+if(ART){/* Claude 内ではオフライン起動の仕組みは使わない（状態表示は同期の状況に使う） */}
+else if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
   navigator.serviceWorker.register('sw.js').then(reg=>{
     navigator.serviceWorker.ready.then(()=>{$('swStatus').textContent='オフライン起動に対応済みです。圏外でもホーム画面から開けます。'});
     reg.addEventListener('updatefound',()=>{const w=reg.installing;if(!w)return;
@@ -1036,10 +1181,22 @@ if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostnam
   }).catch(()=>{$('swStatus').textContent='オフライン起動の準備ができませんでした。電波のある場所で開き直してください。'});
 }else{$('swStatus').textContent='オフライン起動は、https のページ（GitHub Pages など）で開いたときに使えます。'}
 // iPhone の Safari で開いたままだと、7日間使わないと記録が消されることがある
-if(/iPhone|iPad|iPod/.test(navigator.userAgent)&&!window.navigator.standalone){
+if(!ART&&/iPhone|iPad|iPod/.test(navigator.userAgent)&&!window.navigator.standalone){
   const w=$('storeWarn');w.hidden=false;w.className='msg';
   w.textContent='iPhoneでは、Safariで開いたまま7日間使わないと記録が消えることがあります。共有ボタン→「ホーム画面に追加」から使ってください。';
 }
+
+// Artifact 版の画面の切り替え
+if(ART){
+  document.body.classList.add('art');
+  $('gpsChip').hidden=true;$('mapBtn').hidden=true;
+  $('ioHint').textContent='GitHub版の記録を取り込むときは、GitHub版の「履歴を書き出す」で保存したファイルを、ここで「履歴を読み込む」から選んでください。ここで書き出したファイルは、GitHub版でも読み込めます。同じ記録は重複しません。';
+  cloudStart();
+  if(window.claude&&typeof claude.use==='function')claude.use('sample').then(sm=>{if(sm)$('aiBox').hidden=false});
+  $('aiBtn').onclick=askClaude;
+}
+// Claude の画面でライト／ダークを切り替えたときも描き直す
+try{new MutationObserver(()=>{draw();renderCoach();showPrev();document.querySelectorAll('#hist canvas.rt').forEach(c=>c.remove())}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})}catch(e){}
 
 $('addBtn').onclick=()=>openManual();
 $('expBtn').onclick=exportHistory;
@@ -1059,6 +1216,7 @@ $('modeEnd').onclick=()=>setMode('end');
 $('modeIns').onclick=()=>setMode('ins');
 
 // 途中で閉じても続きから再開できるように
+if(ART)run=null;
 if(run){if(run.state==='run'){startWatch();lock()}$('msg').textContent='前回の記録の続きです。'}
 render();
 let shownDay=new Date().toDateString();
