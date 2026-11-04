@@ -174,13 +174,17 @@ canvas#mPrev{height:170px}
   </section>
 
   <section class="meter" id="plan">
-    <div class="planhead"><div class="mtitle">ハーフマラソン練習</div><div class="count" id="pCount"></div></div>
+    <div class="planhead"><div class="mtitle" id="pTitle">ハーフマラソン練習</div><div class="count" id="pCount"></div></div>
     <div class="basis" id="pBasis"></div>
     <div id="pToday"></div>
     <details id="pSetWrap">
       <summary>大会と目標の設定</summary>
       <div class="form">
         <label for="pRace">大会の日<input type="date" id="pRace"></label>
+        <label for="pKm">大会の距離 (km)<input type="number" id="pKm" min="3" max="50" step="0.1" inputmode="decimal" placeholder="21.1"></label>
+        <div class="lbl">制限時間（わかれば）
+          <span class="hms"><input type="number" id="cH" min="0" max="8" inputmode="numeric" placeholder="2" aria-label="制限時間の時間">時間<input type="number" id="cM" min="0" max="59" inputmode="numeric" placeholder="30" aria-label="制限時間の分">分</span>
+        </div>
         <div class="lbl">目標タイム（空欄なら履歴から予想します）
           <span class="hms"><input type="number" id="gH" min="0" max="4" inputmode="numeric" placeholder="2" aria-label="目標の時間">時間<input type="number" id="gM" min="0" max="59" inputmode="numeric" placeholder="00" aria-label="目標の分">分<input type="number" id="gS" min="0" max="59" inputmode="numeric" placeholder="00" aria-label="目標の秒">秒</span>
         </div>
@@ -830,6 +834,9 @@ function saveManual(){
 
 /* ---------- ハーフマラソン練習メニュー ---------- */
 const KEY_PLAN='joglog.plan.v1', HALF=21.0975, DAY=864e5, DOW='日月火水木金土';
+const raceKm=set=>(set&&+set.km>0?+set.km:HALF);               // 大会の距離（未設定ならハーフ）
+const kmLabel=k=>String(+k.toFixed(1));                          // 21.0975→"21.1", 20→"20"
+const raceName=k=>Math.abs(k-HALF)<0.05?'ハーフマラソン':`${kmLabel(k)}kmの大会`;
 const ymd=d=>`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
 const parseYmd=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
 const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
@@ -841,13 +848,14 @@ const fmtHMS=s=>{s=Math.round(s);return `${Math.floor(s/3600)}:${pad2(Math.floor
 const pmsg=(t,bad)=>{const m=$('pMsg');m.textContent=t||'';m.className='msg'+(bad?'':' ok')};
 let plan=load(KEY_PLAN,null);
 
-/* 直近90日・3km以上の記録から、ハーフのタイムを予想（リーゲルの式） */
-function predictHalf(){
-  const now=Date.now();let best=null;
-  history.forEach(r=>{if(r.dist<3000||r.ms<=0||now-r.start>90*DAY)return;
-    if(r.ms/r.dist<0.15)return; // 2'30"/kmより速い記録はGPSの誤りや乗り物とみなして使わない
-    const t=r.ms/1000*Math.pow(HALF*1000/r.dist,1.06);
-    if(t>3600&&(!best||t<best))best=t});
+/* 直近90日・3km以上の記録から、大会の距離でのタイムを予想（リーゲルの式） */
+function predictHalf(km=HALF){
+  // 短い距離の記録ほど予想が楽観的になるので、大会距離の4割以上を走った記録があればそれを優先する
+  const now=Date.now();
+  const cand=history.filter(r=>r.dist>=3000&&r.ms>0&&now-r.start<=90*DAY&&r.ms/r.dist>=0.15);  // 2'30"/kmより速いものは誤りとみなす
+  const longer=cand.filter(r=>r.dist>=km*400), use=longer.length?longer:cand;
+  let best=null;
+  use.forEach(r=>{const t=r.ms/1000*Math.pow(km*1000/r.dist,1.06);if(t>1200&&(!best||t<best))best=t});
   return best;
 }
 const recentWeekly=()=>{const now=Date.now();return history.filter(r=>now-r.start<28*DAY).reduce((a,r)=>a+r.dist,0)/1000/4};
@@ -858,8 +866,8 @@ const TPL={3:{'-4':'q','-2':'e'},4:{'-6':'e','-4':'q','-2':'e'},5:{'-6':'e','-5'
 
 function genPlan(set){
   const today=parseYmd(ymd(new Date())), race=parseYmd(set.race), total=daysBetween(today,race);
-  const pred=predictHalf(), goal=set.goal||pred||8400;
-  const RP=goal/HALF, P={easy:RP+70,long:RP+50,tempo:RP-15,int:RP-30,rp:RP};
+  const D=raceKm(set), pred=predictHalf(D), goal=set.goal||pred||Math.round(398*D);  // 未設定なら仮に6'38"/km
+  const RP=goal/D, P={easy:RP+70,long:RP+50,tempo:RP-15,int:RP-30,rp:RP};
   const out={settings:set,goal,goalSrc:set.goal?'goal':pred?'pred':'default',made:Date.now(),days:[]};
   if(total<0)return out;
   const pc=s=>fmtPace(s)+'/km';
@@ -871,7 +879,7 @@ function genPlan(set){
     int:n=>({type:'int',km:r05(2.5+n*1.4),title:`インターバル ${r05(2.5+n*1.4)}km`,detail:`1.5kmジョグ → 1kmを${pc(P.int)}で走り、400mジョグでつなぐ ×${n}本 → 1kmジョグ`}),
     rp:t=>({type:'rp',km:t+2,title:`レースペース走 ${t+2}km`,detail:`1kmジョグ → ${t}kmを${pc(P.rp)}（本番のペース） → 1kmジョグ`}),
     rpSet:(n,each)=>{const km=r05(2+n*each+(n-1)*0.4);return {type:'rp',km,title:`レースペース走 ${km}km`,detail:`1kmジョグ → ${each}kmを${pc(P.rp)}で走り、400mジョグでつなぐ ×${n}本 → 1kmジョグ`}},
-    race:()=>({type:'race',km:HALF,title:'大会当日 21.1km',detail:`目標 ${fmtHMS(goal)}（${pc(RP)}）。最初の5kmは目標より少し遅めに入り、後半に上げる`})
+    race:()=>({type:'race',km:D,title:`大会当日 ${kmLabel(D)}km`,detail:`目標 ${fmtHMS(goal)}（${pc(RP)}）。最初の5kmは目標より少し遅めに入り、後半に上げる`+(set.cutoff?`。制限時間は${fmtHMS(set.cutoff)}（平均${pc(set.cutoff/D)}より遅くならないように）`:'')})
   };
   const days=new Map();
   const put=(date,o)=>{if(date<today||date>race)return;days.set(ymd(date),Object.assign({d:ymd(date)},o))};
@@ -921,13 +929,19 @@ function readPlanForm(){
   const race=$('pRace').value;
   if(!race){pmsg('大会の日を入れてください。',true);return null}
   const gs=(+$('gH').value||0)*3600+(+$('gM').value||0)*60+(+$('gS').value||0);
-  if(gs&&(gs<3600||gs>4*3600)){pmsg('目標タイムは1時間〜4時間の範囲で入れてください。',true);return null}
-  return {race,goal:gs||null,days:+$('pDays').value,longDow:+$('pLong').value,weekly:parseFloat($('pWeekly').value)||null};
+  const km=parseFloat($('pKm').value)||HALF;
+  if(km<3||km>50){pmsg('大会の距離は3〜50kmの範囲で入れてください。',true);return null}
+  if(gs&&(gs<km*150||gs>km*720)){pmsg(`目標タイムが${kmLabel(km)}kmに対して速すぎるか遅すぎます。入力を確かめてください。`,true);return null}
+  const co=(+$('cH').value||0)*3600+(+$('cM').value||0)*60;
+  if(gs&&co&&gs>co){pmsg('目標タイムが制限時間より遅くなっています。制限時間より前にゴールできる目標にしてください。',true);return null}
+  return {race,km:Math.abs(km-21.1)<0.05?HALF:km,cutoff:co||null,goal:gs||null,days:+$('pDays').value,longDow:+$('pLong').value,weekly:parseFloat($('pWeekly').value)||null};
 }
 function fillPlanForm(){
   if(!plan)return;const s=plan.settings;
   $('pRace').value=s.race;$('pDays').value=String(s.days);$('pLong').value=String(s.longDow);
   $('pWeekly').value=s.weekly?Math.round(s.weekly):'';
+  $('pKm').value=kmLabel(raceKm(s));
+  if(s.cutoff){$('cH').value=Math.floor(s.cutoff/3600);$('cM').value=Math.floor(s.cutoff/60)%60}else{$('cH').value='';$('cM').value=''}
   if(s.goal){$('gH').value=Math.floor(s.goal/3600);$('gM').value=Math.floor(s.goal/60)%60;$('gS').value=Math.round(s.goal%60)}
   else ['gH','gM','gS'].forEach(id=>$(id).value='');
 }
@@ -955,7 +969,8 @@ function renderPlan(){
   if(!plan)return;
   const set=plan.settings, td=ymd(new Date()), today=parseYmd(td), race=parseYmd(set.race), left=daysBetween(today,race);
   $('pCount').innerHTML=left>0?`大会まで<b>${left}</b>日`:left===0?'<b>今日は大会当日</b>':'大会は終了しました';
-  $('pBasis').textContent=`${mdw(race)}・目標 ${fmtHMS(plan.goal)}（${fmtPace(plan.goal/HALF)}/km）`
+  const D=raceKm(set);$('pTitle').textContent=raceName(D)+'練習';
+  $('pBasis').textContent=`${mdw(race)}・${kmLabel(D)}km・目標 ${fmtHMS(plan.goal)}（${fmtPace(plan.goal/D)}/km）`+(set.cutoff?`・制限時間 ${fmtHMS(set.cutoff)}`:'')
     +({goal:'',pred:'・最近の記録から予想したタイムです',default:'・目標タイムを設定するとペースが合います'}[plan.goalSrc]||'');
   const act=actualByDay();
 
@@ -1031,7 +1046,7 @@ function renderCoach(){
 
   // アドバイス（注意 → 次の一歩 → 時期の助言 → よい点 の順に並べる）
   const items=[];const add=(lv,html,pri)=>items.push({lv,html,pri});
-  const race=parseYmd(plan.settings.race), left=daysBetween(today,race), RP=plan.goal/HALF;
+  const race=parseYmd(plan.settings.race), left=daysBetween(today,race), D=raceKm(plan.settings), RP=plan.goal/D, CUT=plan.settings.cutoff||0;
   const act=actualByDay();
   if(!runs.length){
     add('next','まだ記録がありません。まずは今日のメニューか、30分ほどの楽なジョギングから始めましょう。走った分だけ、ここに分析とアドバイスが出ます。',2);
@@ -1071,7 +1086,7 @@ function renderCoach(){
     if(left>=7&&left<=24&&long42<12)
       add('next',`本番までに、<b>12〜15km</b>を一度走っておくと安心です（最近の最長は${long42.toFixed(1)}km）。次のロング走の日に、ゆっくりで良いので挑戦しましょう。`,5);
     else if(long42>=15&&left>=0)
-      add('good',`最近<b>${long42.toFixed(1)}km</b>を走れています。21.1kmを走りきる土台ができています。`,3);
+      add('good',`最近<b>${long42.toFixed(1)}km</b>を走れています。${kmLabel(D)}kmを走りきる土台ができています。`,3);
     // 長い距離での後半の失速（記録した時速から）
     const lr=runs.filter(r=>r.dist>=8000&&daysBetween(parseYmd(ymd(new Date(r.start))),today)<=21).sort((a,b)=>b.start-a.start).map(r=>({r,pf:speedProfile(r)})).find(x=>x.pf&&x.pf.v.length>=40);
     if(lr){
@@ -1081,17 +1096,23 @@ function renderCoach(){
       else if(ch>-0.03)add('good',`${lbl}では、前半 ${v1.toFixed(1)}km/h・後半 ${v2.toFixed(1)}km/h と、最後までペースを保てています。本番でもこの走り方が理想です。`,3);
     }
     // 予想タイムと目標
-    const pred=predictHalf();
-    const raceRun=left<0?runs.filter(r=>ymd(new Date(r.start))===plan.settings.race&&r.dist>=18000).sort((a,b)=>b.dist-a.dist)[0]:null;
+    const pred=predictHalf(D);
+    const raceRun=left<0?runs.filter(r=>ymd(new Date(r.start))===plan.settings.race&&r.dist>=D*850).sort((a,b)=>b.dist-a.dist)[0]:null;
     if(raceRun){
-      const t=raceRun.ms/1000*Math.pow(HALF*1000/raceRun.dist,1.0);
-      add('good',`大会の記録は<b>${fmtHMS(t)}</b>（${fmtPace(t/HALF)}/km）でした。`+(plan.goalSrc==='goal'?(t<=plan.goal?`目標の${fmtHMS(plan.goal)}を達成しました。おめでとうございます。`:`目標の${fmtHMS(plan.goal)}まであと${Math.ceil((t-plan.goal)/60)}分でした。この経験は次の大会に必ず活きます。`):'完走おめでとうございます。'),8);
+      const t=raceRun.ms/1000*Math.pow(D*1000/raceRun.dist,1.0);
+      add('good',`大会の記録は<b>${fmtHMS(t)}</b>（${fmtPace(t/D)}/km）でした。`+(plan.goalSrc==='goal'?(t<=plan.goal?`目標の${fmtHMS(plan.goal)}を達成しました。おめでとうございます。`:`目標の${fmtHMS(plan.goal)}まであと${Math.ceil((t-plan.goal)/60)}分でした。この経験は次の大会に必ず活きます。`):'完走おめでとうございます。'),8);
     }else if(pred&&plan.goalSrc==='goal'){
       const diff=pred-plan.goal;
-      if(diff<=0)add('good',`今の記録から予想するハーフのタイムは<b>${fmtHMS(pred)}</b>です。目標の${fmtHMS(plan.goal)}に届く力がついています。`,4);
+      if(diff<=0)add('good',`今の記録から予想する大会（${kmLabel(D)}km）のタイムは<b>${fmtHMS(pred)}</b>です。目標の${fmtHMS(plan.goal)}に届く力がついています。`,4);
       else if(diff<=plan.goal*0.05)add('next',`予想タイムは<b>${fmtHMS(pred)}</b>で、目標まであと<b>${Math.ceil(diff/60)}分</b>です。ペース走とインターバルを予定どおりこなせば届く範囲です。`,4);
       else add('next',`予想タイムは<b>${fmtHMS(pred)}</b>で、目標の${fmtHMS(plan.goal)}より${Math.ceil(diff/60)}分遅い見込みです。目標を<b>${fmtHMS(Math.ceil(pred/300)*300)}</b>前後に見直すと、無理のないペースで練習できます。`,4);
-    }else if(pred)add('next',`今の記録から予想するハーフのタイムは<b>${fmtHMS(pred)}</b>です。「大会と目標の設定」で目標タイムを入れると、練習のペースがより正確になります。`,3);
+    }else if(pred)add('next',`今の記録から予想する大会（${kmLabel(D)}km）のタイムは<b>${fmtHMS(pred)}</b>です。「大会と目標の設定」で目標タイムを入れると、練習のペースがより正確になります。`,3);
+    // 制限時間との余裕
+    if(CUT&&pred&&left>=0&&!raceRun){
+      const m=(CUT-pred)/60;
+      if(m<5)add('warn',`予想タイム<b>${fmtHMS(pred)}</b>は、制限時間${fmtHMS(CUT)}まで<b>${Math.max(0,Math.round(m))}分</b>しか余裕がありません。前半を抑えて後半の失速を防ぐことと、スタート位置（号砲からスタートラインまでの時間）に気をつけましょう。平均${fmtPace(CUT/D)}/kmが最低ラインです。`,9);
+      else add(m<12?'next':'good',`予想タイム<b>${fmtHMS(pred)}</b>なら、制限時間${fmtHMS(CUT)}まで約<b>${Math.round(m)}分</b>の余裕があります。`+(m<12?`給水所で短く歩く程度なら収まりますが、平均${fmtPace(CUT/D)}/kmより遅くならないよう、時計でペースを確かめながら走りましょう。`:'このまま脚を痛めずに準備できれば、完走は十分狙えます。'),m<12?8:5);
+    }
     // 距離の伸び
     const full=weeks.slice(4,7).map(w=>w.km); // 先週までの3週
     if(full[0]>0&&full[1]>=full[0]&&full[2]>=full[1]&&full[2]<=full[0]*1.6&&full[2]>full[0])
@@ -1100,7 +1121,7 @@ function renderCoach(){
   }
   // 大会までの時期ごとの助言
   if(left<0&&left>=-14)add('info','大会お疲れさまでした。終わってから1〜2週間は、距離を普段の半分ほどにして回復を優先しましょう。次の大会が決まったら、設定から新しいメニューを作れます。',5);
-  else if(left===0)add('info',`今日は大会当日です。最初の5kmは目標ペース（<b>${fmtPace(RP)}/km</b>）より少し遅めに入り、10kmを過ぎて余裕があれば上げましょう。給水は早めに少しずつ。`,9);
+  else if(left===0)add('info',`今日は大会当日です。最初の5kmは目標ペース（<b>${fmtPace(RP)}/km</b>）より少し遅めに入り、10kmを過ぎて余裕があれば上げましょう。給水は早めに少しずつ。`+(CUT?`制限時間は${fmtHMS(CUT)}です。号砲から計ることが多いので、平均${fmtPace(CUT/D)}/kmを最低ラインに、時計を見ながら走りましょう。`:''),9);
   else if(left>=1&&left<=6)add('info',`レース週です。疲れを残さないことが最優先です。前日は炭水化物を多めにとり、早めに寝ましょう。新しいシューズやウェアは本番で試さないのが鉄則です。`,6);
   else if(left>=7&&left<=13)add('info','調整期です。練習の量を減らしても力は落ちません。ここで追い込まず、メニューの距離を守って疲れを抜きましょう。',4);
   else if(left>13)add('info',`強化期です（大会まで${left}日）。いちばん大事なのは週1回のロング走、次がペース走・インターバルです。ほかの日は楽に走りましょう。`,1);
@@ -1222,7 +1243,7 @@ function coachData(){
   const td=ymd(new Date()), today=parseYmd(td), lines=[];
   const runs=history.filter(r=>r.dist>=500&&r.ms>0).sort((a,b)=>b.start-a.start);
   lines.push(`今日：${td}（${DOW[today.getDay()]}）`);
-  if(plan){lines.push(`大会：${plan.settings.race}（ハーフマラソン、あと${daysBetween(today,parseYmd(plan.settings.race))}日）`);
+  if(plan){lines.push(`大会：${plan.settings.race}（${kmLabel(raceKm(plan.settings))}km${plan.settings.cutoff?`、制限時間${fmtHMS(plan.settings.cutoff)}`:''}、あと${daysBetween(today,parseYmd(plan.settings.race))}日）`);
     lines.push(`目標タイム：${fmtHMS(plan.goal)}（${{goal:'本人が設定',pred:'記録から予想',default:'仮の値'}[plan.goalSrc]||''}）、週の練習日数：${plan.settings.days}日`)}
   const mon=addDays(today,-((today.getDay()+6)%7)),wk=[];
   for(let i=7;i>=0;i--){const a=addDays(mon,-7*i),b=addDays(a,7);
