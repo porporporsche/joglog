@@ -41,7 +41,9 @@ h1{font-size:17px;margin:0;letter-spacing:.04em}
 .meter{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 16px;display:flex;flex-direction:column;gap:14px}
 .big{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:64px;font-weight:700;line-height:1;letter-spacing:-.02em}
 .big small{font-size:20px;font-weight:500;color:var(--muted);margin-left:6px}
-.row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 8px}
+.stat .v.now{color:var(--accent)}
+.stat .k small{font-size:10px;letter-spacing:0}
 .stat .k{font-size:11px;color:var(--muted);letter-spacing:.08em}
 .stat .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;margin-top:2px}
 canvas{width:100%;height:180px;border-radius:10px;background:var(--bg);display:block}
@@ -164,8 +166,9 @@ canvas#mPrev{height:170px}
     <div class="big" id="dist">0.00<small>km</small></div>
     <div class="row">
       <div class="stat"><div class="k">時間</div><div class="v" id="time">0:00:00</div></div>
-      <div class="stat"><div class="k">平均ペース</div><div class="v" id="pace">--'--"</div></div>
-      <div class="stat"><div class="k">今の時速</div><div class="v" id="speed">--</div></div>
+      <div class="stat"><div class="k">平均ペース <small>/km</small></div><div class="v" id="pace">--'--"</div></div>
+      <div class="stat"><div class="k">今のペース <small>/km</small></div><div class="v now" id="curPace">--'--"</div></div>
+      <div class="stat"><div class="k">今の時速 <small>km/h</small></div><div class="v now" id="speed">--</div></div>
     </div>
     <canvas id="map" aria-label="走行ルート"></canvas>
     <div class="cap" id="mapCap"></div>
@@ -302,7 +305,12 @@ function fmtP(ms,m){if(m<50)return `--'--"`;const spk=ms/1000/(m/1000);if(!isFin
 /* 時速の記録：100m 進むごとに、その100mの時速（0.1km/h 単位の整数）を1つだけ保存する。
    ハーフでも約200個の数字で済み、地点を間引いても速度の細かさは失われない */
 const SPD_STEP=100;
-let recent=[], devSpeed=null;  // 「今の時速」表示用（保存しない）
+/* 「今の時速・今のペース」の表示用（保存しない）。GPSの測位が届くたびに更新する。
+   端末がGPSの速度（ドップラー計測）を返すときはそれを、返さないときは直近10秒の移動から計算し、
+   表示のちらつきを抑えつつ、大きな変化にはすぐ追いつくようにならす */
+const LIVE_WIN=10000, LIVE_STALE=10000;
+let fixes=[], liveV=null, liveT=0;
+function resetLive(){fixes=[];liveV=null;liveT=0}
 function recordSpeed(){
   if(!run.spd){run.spd=[];run.spdNext=SPD_STEP;run.spdT=0}
   if(run.dist<run.spdNext)return;
@@ -311,19 +319,30 @@ function recordSpeed(){
   for(let i=0;i<n;i++)run.spd.push(Math.round(kmh*10));
   run.spdT=now;run.spdNext+=n*SPD_STEP;
 }
-function currentKmh(){
-  if(!run||run.state!=='run')return null;
-  const now=Date.now();
-  if(devSpeed&&now-devSpeed.t<5000)return devSpeed.v*3.6;
-  recent=recent.filter(x=>now-x[0]<=20000);
-  if(recent.length<2)return null;
-  const a=recent[0],b=recent[recent.length-1],dt=(b[0]-a[0])/1000;
-  return dt>=5?(b[1]-a[1])/dt*3.6:null;
+function updateLive(c,t){
+  if(!run||run.state!=='run'||c.accuracy>30)return;
+  fixes.push([t,c.latitude,c.longitude]);
+  while(fixes.length&&t-fixes[0][0]>LIVE_WIN)fixes.shift();
+  let v=null;
+  if(c.speed!=null&&!isNaN(c.speed)&&c.speed>=0)v=c.speed*3.6;
+  else if(fixes.length>=2){const a=fixes[0],b=fixes[fixes.length-1],dt=(b[0]-a[0])/1000;
+    if(dt>=3)v=hav([a[1],a[2]],[b[1],b[2]])/dt*3.6}
+  if(v==null)return;
+  v=Math.min(v,40);
+  // 小さな揺れは半々でならし、止まる・急に上げるなど大きな変化（3割以上）にはすぐ追いつく
+  const k=liveV==null?1:Math.abs(v-liveV)>0.3*Math.max(liveV,1)?0.8:0.5;
+  liveV=liveV+(v-(liveV??v))*k;if(k===1)liveV=v;liveT=Date.now();
+  showLive();
+}
+function showLive(){
+  const fresh=liveV!=null&&run&&run.state==='run'&&Date.now()-liveT<LIVE_STALE;
+  $('speed').textContent=fresh?liveV.toFixed(1):'--';
+  // 時速2km未満（ほぼ止まっている）ときはペースを出さない
+  $('curPace').textContent=fresh&&liveV>=2?fmtPace(3600/liveV):`--'--"`;
 }
 function onPos(p){
   const c=p.coords; lastFix=Date.now();
-  // 端末が速度を返すとき（GPSのドップラー計測）は、精度が良ければそれを「今の時速」に使う
-  if(run&&run.state==='run'&&c.speed!=null&&!isNaN(c.speed)&&c.accuracy<=20)devSpeed={v:Math.max(0,c.speed),t:Date.now()};
+  updateLive(c,p.timestamp||Date.now());
   if(gpsErr){gpsErr=false;$('msg').textContent=''}
   const ok=c.accuracy<=MAX_ACC;
   $('gpsDot').className='dot '+(ok?'ok':'bad');
@@ -339,7 +358,6 @@ function onPos(p){
     run.dist+=d;
     recordSpeed();
   }
-  recent.push([Date.now(),run.dist]);
   run.pts.push(pt); save(KEY_CUR,run); draw(); $('gpsTxt').textContent=gpsLabel();
 }
 function onErr(e){
@@ -362,16 +380,16 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState!==
 
 function start(){
   $('msg').textContent='';
-  run={start:Date.now(),pts:[],dist:0,activeMs:0,segStart:Date.now(),state:'run',spd:[],spdNext:SPD_STEP,spdT:0};recent=[];devSpeed=null;
+  run={start:Date.now(),pts:[],dist:0,activeMs:0,segStart:Date.now(),state:'run',spd:[],spdNext:SPD_STEP,spdT:0};resetLive();
   save(KEY_CUR,run); startWatch(); lock(); render();
 }
 function pause(){
   run.activeMs+=Date.now()-run.segStart; run.segStart=null; run.state='pause';
   const l=run.pts[run.pts.length-1]; if(l)l[3]=1; // 次の点とは繋げない
-  recent=[];devSpeed=null;
+  resetLive();
   save(KEY_CUR,run); unlock(); render();
 }
-function resume(){recent=[];devSpeed=null;run.segStart=Date.now();run.state='run';save(KEY_CUR,run);startWatch();lock();render()}
+function resume(){resetLive();run.segStart=Date.now();run.state='run';save(KEY_CUR,run);startWatch();lock();render()}
 function finish(){
   if(run.state==='run'){run.activeMs+=Date.now()-run.segStart}
   // 形が変わらない範囲（3m）で点を間引いて保存容量を節約する。距離は間引く前の値を使う
@@ -398,7 +416,7 @@ function renderLive(){
   $('dist').innerHTML=(m/1000).toFixed(2)+'<small>km</small>';
   $('time').textContent=fmtT(ms);
   $('pace').textContent=fmtP(ms,m);
-  const v=currentKmh();$('speed').textContent=v==null?'--':v.toFixed(1);
+  showLive();
   if(lastFix&&Date.now()-lastFix>15000&&run&&run.state==='run'){$('gpsDot').className='dot bad';$('gpsTxt').textContent='GPS信号待ち'}
 }
 function draw(){
@@ -434,7 +452,8 @@ function toggleRoute(li,r){
     const sp=document.createElement('canvas');sp.className='sp';sp.setAttribute('aria-label','距離ごとの時速');li.appendChild(sp);
     const cap=document.createElement('div');cap.className='spcap';li.appendChild(cap);
     const st=drawSpeed(sp,pf);
-    cap.textContent=`時速：平均 ${st.avg.toFixed(1)}km/h・最高 ${st.max.toFixed(1)}km/h・最低 ${st.min.toFixed(1)}km/h`+(pf.measured?'（100mごと）':'（ルートの時刻から計算）');
+    const kp=v=>`${v.toFixed(1)}km/h（${fmtPace(3600/v)}/km）`;
+    cap.textContent=`平均 ${kp(st.avg)}・最高 ${kp(st.max)}・最低 ${kp(st.min)}`+(pf.measured?'　100mごとの記録':'　ルートの時刻から計算');
   }
 }
 /* 100mごとの時速（km/h）の列。記録時に保存した値があればそれを、なければルートの時刻から計算 */
