@@ -97,6 +97,8 @@ button:disabled{opacity:.45;cursor:default}
 li .n,li .d{cursor:pointer}
 li .rtl{color:var(--accent);margin-left:6px}
 li canvas.rt{grid-column:1/-1;height:170px;margin-top:8px}
+.rmap{height:240px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--bg);position:relative;z-index:0}
+li .rmap{grid-column:1/-1;margin-top:8px}
 li canvas.sp{grid-column:1/-1;height:130px;margin-top:6px;background:transparent}
 li .spcap{grid-column:1/-1;font-size:12px;color:var(--muted);font-family:var(--mono);font-variant-numeric:tabular-nums}
 .exp{display:flex;flex-direction:column;gap:8px}
@@ -170,6 +172,7 @@ canvas#mPrev{height:170px}
       <div class="stat"><div class="k">今のペース <small>/km</small></div><div class="v now" id="curPace">--'--"</div></div>
       <div class="stat"><div class="k">今の時速 <small>km/h</small></div><div class="v now" id="speed">--</div></div>
     </div>
+    <div class="rmap" id="mainMap" aria-label="走行ルートの地図" hidden></div>
     <canvas id="map" aria-label="走行ルート"></canvas>
     <div class="cap" id="mapCap"></div>
     <div class="btns" id="btns"></div>
@@ -421,9 +424,47 @@ function renderLive(){
 }
 function draw(){
   const last=run?null:history.find(r=>r.pts&&r.pts.length>1);
-  drawRoute($('map'),run?run.pts:last?last.pts:[],run?'GPSで位置を取得するとルートが表示されます':'スタートすると走ったルートを描きます');
-  if(last){const d=new Date(last.start);$('mapCap').textContent=`前回のルート（${d.getMonth()+1}/${d.getDate()}・${(last.dist/1000).toFixed(2)}km）`}
-  else $('mapCap').textContent='';
+  const pts=run?run.pts:last?last.pts:[];
+  let cap=last?(()=>{const d=new Date(last.start);return `前回のルート（${d.getMonth()+1}/${d.getDate()}・${(last.dist/1000).toFixed(2)}km）`})():'';
+  // 地図が使えるときは地図の上に、使えないとき（Artifact版・圏外で地図部品なし）は線だけの図で表示
+  if(mapReady&&pts.length){
+    $('map').hidden=true;$('mainMap').hidden=false;
+    if(!mainMap){mainMap=makeRouteMap($('mainMap'),t=>{if(t!==mainMapMsg){mainMapMsg=t;draw()}})}  // 表示が変わるときだけ描き直す
+    else mainMap.m.invalidateSize();
+    setRoute(mainMap,pts,!!run);
+    if(mainMapMsg)cap=(cap?cap+'　':'')+mainMapMsg;
+  }else{
+    $('mainMap').hidden=true;$('map').hidden=false;
+    drawRoute($('map'),pts,run?'GPSで位置を取得するとルートが表示されます':'スタートすると走ったルートを描きます');
+    if(ART&&pts.length)cap=(cap?cap+'　':'')+'Claudeの画面では外部の地図を読み込めないため、コースの形だけを表示しています。地図の上で見るにはGitHub版を使ってください。';
+  }
+  $('mapCap').textContent=cap;
+}
+/* ---------- 走ったコースを地図の上に表示（GitHub版。地図部品は起動時に裏で読み込む） ---------- */
+let mapReady=false, mainMap=null, mainMapMsg='';
+function makeRouteMap(el,say){
+  const m=L.map(el,{scrollWheelZoom:false,maxZoom:19});
+  addTiles(m,say||(()=>{}));
+  // 白いふちを下に敷いて、地図の線路や公園の色と見分けやすくする
+  const edge=L.polyline([],{color:'#fff',weight:9,opacity:.9,lineJoin:'round',interactive:false}).addTo(m);
+  const line=L.polyline([],{color:accent(),weight:5,opacity:1,lineJoin:'round'}).addTo(m);
+  const dots=L.layerGroup().addTo(m);
+  return {m,edge,line,dots,fitted:false};
+}
+function setRoute(rm,pts,follow){
+  const seg=segments(pts);rm.edge.setLatLngs(seg);rm.line.setStyle({color:accent()});rm.line.setLatLngs(seg);rm.dots.clearLayers();
+  if(!pts.length)return;
+  const fg=getComputedStyle(document.documentElement).getPropertyValue('--fg').trim();
+  const s0=pts[0],e=pts[pts.length-1],dot=(p,c)=>L.circleMarker([p[0],p[1]],{radius:7,color:'#fff',weight:2,fillColor:c,fillOpacity:1}).addTo(rm.dots);
+  dot(s0,accent());dot(e,fg);
+  if(follow){  // 走っている間は今いる場所を中心に（拡大率はそのまま）
+    rm.m.setView([e[0],e[1]],rm.fitted?rm.m.getZoom():16,{animate:rm.fitted});rm.fitted=true;
+  }else if(pts.length>1){rm.m.fitBounds(L.latLngBounds(pts.map(p=>[p[0],p[1]])),{padding:[22,22]});rm.fitted=false}
+  else rm.m.setView([e[0],e[1]],16);
+}
+function closeRoute(li){
+  if(li._rm){li._rm.m.remove();li._rm=null}
+  li.querySelectorAll('.rt,canvas.sp,.spcap').forEach(e=>e.remove());
 }
 function drawRoute(cv,pts,emptyText){
   const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
@@ -443,10 +484,15 @@ function drawRoute(cv,pts,emptyText){
   const e=pts[pts.length-1];g.fillStyle=cs.getPropertyValue('--fg');g.beginPath();g.arc(X(e),Y(e),5,0,7);g.fill();
 }
 function toggleRoute(li,r){
-  let cv=li.querySelector('canvas.rt');
-  if(cv){li.querySelectorAll('canvas.rt,canvas.sp,.spcap').forEach(e=>e.remove());return}
-  cv=document.createElement('canvas');cv.className='rt';cv.setAttribute('aria-label','この記録のルート');li.appendChild(cv);
-  drawRoute(cv,r.pts||[],'ルートがありません（「編集」から地図で描けます）');
+  if(li.querySelector('.rt')){closeRoute(li);return}
+  const pts=r.pts||[];
+  if(mapReady&&pts.length){
+    const el=document.createElement('div');el.className='rt rmap';el.setAttribute('aria-label','この記録のルートの地図');li.appendChild(el);
+    li._rm=makeRouteMap(el);setRoute(li._rm,pts,false);
+  }else{
+    const cv=document.createElement('canvas');cv.className='rt';cv.setAttribute('aria-label','この記録のルート');li.appendChild(cv);
+    drawRoute(cv,pts,'ルートがありません（「編集」から地図で描けます）');
+  }
   const pf=speedProfile(r);
   if(pf){
     const sp=document.createElement('canvas');sp.className='sp';sp.setAttribute('aria-label','距離ごとの時速');li.appendChild(sp);
@@ -498,7 +544,7 @@ function drawSpeed(cv,pf){
 }
 function renderHist(){listHist();draw();renderPlan();renderCoach()}  // 履歴が変わったら関係する表示をまとめて更新
 function listHist(){
-  const ul=$('hist');ul.innerHTML='';
+  const ul=$('hist');ul.querySelectorAll('li').forEach(li=>{if(li._rm)li._rm.m.remove()});ul.innerHTML='';
   if(!history.length){ul.innerHTML='<li class="empty" style="display:block">まだ記録はありません。</li>';$('total').textContent='';return}
   const tot=history.reduce((a,r)=>a+r.dist,0);
   $('total').textContent=`${history.length}回・合計 ${(tot/1000).toFixed(2)} km`;
@@ -717,16 +763,16 @@ async function loadLeaflet(){
   throw new Error('leaflet');
 }
 /* 地図画像：国土地理院（参照元なしでも表示できる）を基本に、だめならOSMへ切り替え */
-function addTiles(map){
+function addTiles(map,say=mmsg){
   const gsi=L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{maxNativeZoom:18,maxZoom:19,attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>'});
   const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'});
   let loaded=0,failed=0,switched=false;
   const watch=layer=>{
-    layer.on('tileload',()=>{loaded++;if($('mMsg').textContent.startsWith('地図の画像'))mmsg('')});
+    layer.on('tileload',()=>{loaded++;say('')});
     layer.on('tileerror',()=>{failed++;
       if(!loaded&&failed>=4){
         if(!switched){switched=true;failed=0;map.removeLayer(gsi);osm.addTo(map)}
-        else mmsg('地図の画像を読み込めません。電波の状態を確認してください。ClaudeアプリやファイルアプリのプレビューではなくSafariかChromeで開いてください。');
+        else say('地図の画像を読み込めません。電波の状態を確認してください。ClaudeアプリやファイルアプリのプレビューではなくSafariかChromeで開いてください。');
       }});
   };
   watch(gsi);watch(osm);
@@ -1322,8 +1368,9 @@ if(ART){
   $('aiBtn').onclick=askClaude;
 }
 // Claude の画面でライト／ダークを切り替えたときも描き直す
-try{new MutationObserver(()=>{draw();renderCoach();showPrev();document.querySelectorAll('#hist canvas.rt').forEach(c=>c.remove())}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})}catch(e){}
+try{new MutationObserver(()=>{draw();renderCoach();showPrev();document.querySelectorAll('#hist li').forEach(li=>{if(li.querySelector('.rt'))closeRoute(li)})}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})}catch(e){}
 
+if(!ART)loadLeaflet().then(()=>{mapReady=true;draw()}).catch(()=>{});  // 圏外で読めなければ線だけの図のまま
 $('addBtn').onclick=()=>openManual();
 $('expBtn').onclick=exportHistory;
 $('expFile').onclick=exportToFile;
@@ -1349,7 +1396,7 @@ let shownDay=new Date().toDateString();
 tick=setInterval(()=>{renderLive();const d=new Date().toDateString();if(d!==shownDay){shownDay=d;renderPlan();renderCoach()}},1000);
 window.addEventListener('resize',()=>{draw();renderCoach()});
 // 画面のライト／ダークが切り替わったら、色を合わせて描き直す
-try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{draw();renderCoach();document.querySelectorAll('#hist canvas.rt').forEach(c=>c.remove())})}catch(e){}
+try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{draw();renderCoach();document.querySelectorAll('#hist li').forEach(li=>{if(li.querySelector('.rt'))closeRoute(li)})})}catch(e){}
 })();
 </script>
 </body>
