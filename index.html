@@ -16,25 +16,40 @@
 /* 1画面のランニングメーター。上に大きな距離、下に操作、その下に履歴 */
 :root{
   --bg:#f3f6f4; --surface:#ffffff; --fg:#14211d; --muted:#5d6f69; --line:#d9e2de;
-  --accent:#0c8a6a; --accent-fg:#ffffff; --warn:#c2410c; --track:#0c8a6a;
+  --accent:#0c8a6a; --accent-fg:#ffffff; --warn:#c2410c; --track:#0c8a6a; --slow:#2563eb;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0f1a17; --surface:#16241f; --fg:#e6f0ec; --muted:#93a8a0; --line:#25372f;
-  --accent:#2fd3a4; --accent-fg:#06231a; --warn:#fb923c; --track:#2fd3a4; color-scheme:dark}}
+  --accent:#2fd3a4; --accent-fg:#06231a; --warn:#fb923c; --track:#2fd3a4; --slow:#60a5fa; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0f1a17; --surface:#16241f; --fg:#e6f0ec; --muted:#93a8a0; --line:#25372f;
-  --accent:#2fd3a4; --accent-fg:#06231a; --warn:#fb923c; --track:#2fd3a4; color-scheme:dark}
+  --accent:#2fd3a4; --accent-fg:#06231a; --warn:#fb923c; --track:#2fd3a4; --slow:#60a5fa; color-scheme:dark}
 *{box-sizing:border-box}
 [hidden]{display:none!important}  /* 閉じている欄を確実に隠す */
 html,body{margin:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;
-  padding:env(safe-area-inset-top,0) max(16px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+  padding:env(safe-area-inset-top,0) max(16px,env(safe-area-inset-right,0px)) calc(92px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
 .wrap{max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:16px;padding-top:12px}
 header{display:flex;justify-content:space-between;align-items:center}
-h1{font-size:17px;margin:0;letter-spacing:.04em}
+h1{font-size:20px;margin:0;letter-spacing:.04em}
+.ttl{display:flex;align-items:baseline;gap:8px}
+.ttl .app{font-size:11px;color:var(--muted);letter-spacing:.08em}
+.view{display:flex;flex-direction:column;gap:16px}
+/* 下部のタブ。画面の下端に固定し、ホームバーの分だけ余白を足す */
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:1000;background:var(--surface);border-top:1px solid var(--line);
+  padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
+.tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));max-width:520px;margin:0 auto}
+button.tab{background:none;border:0;border-radius:12px;padding:6px 0 4px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:600;color:var(--muted);position:relative;min-width:0}
+.tab svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tab[aria-current="page"]{color:var(--accent)}
+.tab[aria-current="page"] svg{stroke-width:2.2}
+.tab .live{position:absolute;top:3px;left:calc(50% + 9px);width:10px;height:10px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px var(--surface);animation:livepulse 1.6s ease-in-out infinite}
+@keyframes livepulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.tab .live{animation:none}}
+#lmap{position:relative;z-index:0}
 .gps{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--line)}
 .dot.ok{background:var(--accent)} .dot.bad{background:var(--warn)}
@@ -146,7 +161,28 @@ ul.advice li{display:grid;grid-template-columns:4.6em 1fr;gap:10px;align-items:s
 .advice .tx{font-size:14px;line-height:1.65}
 .advice .tx b{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .s-ok{color:var(--accent);font-weight:700}
-.art .big,.art .meter>.row{display:none}
+.art .big,.art .meter>.row,.art .guide{display:none}
+/* ペースガイド：今のペースが目標より速いか遅いか */
+.guide{display:flex;flex-direction:column;gap:10px;background:var(--bg);border-radius:12px;padding:12px}
+.ghead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.ghead .k{font-size:11px;color:var(--muted);letter-spacing:.08em}
+.gctl{display:flex;align-items:center;gap:8px}
+.gctl button{flex:none;padding:6px 12px;font-size:13px;font-weight:600;border-radius:999px}
+.gctl b{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:22px;min-width:3.6em;text-align:center}
+.gctl small{color:var(--muted)}
+.gsrc{font-size:12px;color:var(--muted);line-height:1.5}
+.gsrc button{padding:0 0 0 6px;border:0;background:none;color:var(--accent);font-size:12px;font-weight:600;text-decoration:underline;flex:none}
+.gbar{position:relative;height:16px;border-radius:999px;overflow:hidden;display:grid;grid-template-columns:39fr 22fr 39fr}
+.gbar i{display:block;opacity:.28}
+.gbar i:nth-child(1){background:var(--slow)} .gbar i:nth-child(2){background:var(--accent);opacity:.45} .gbar i:nth-child(3){background:var(--warn)}
+.gneedle{position:absolute;top:-2px;bottom:-2px;width:6px;margin-left:-3px;border-radius:3px;background:var(--fg);box-shadow:0 0 0 2px var(--bg);transition:left .4s ease}
+.glabels{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:-6px}
+.gstate{font-size:15px;font-weight:700;line-height:1.5;color:var(--muted)}
+.gstate.g-ok{color:var(--accent)} .gstate.g-fast{color:var(--warn)} .gstate.g-slow{color:var(--slow)}
+.v.now[data-g="fast"]{color:var(--warn)} .v.now[data-g="slow"]{color:var(--slow)}
+.gvoice{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.gvoice input{width:18px;height:18px;accent-color:var(--accent)}
+@media (prefers-reduced-motion:reduce){.gneedle{transition:none}}
 .art #msg:empty{display:none}
 .note{font-size:13px;line-height:1.6;color:var(--muted);background:var(--bg);border-radius:10px;padding:12px}
 .note b{color:var(--fg)}
@@ -159,11 +195,12 @@ canvas#mPrev{height:170px}
 <body>
 <div class="wrap">
   <header>
-    <h1>ジョグログ</h1>
+    <div class="ttl"><h1 id="viewTitle">走る</h1><span class="app">ジョグログ</span></div>
     <div class="gps" id="gpsChip"><span class="dot" id="gpsDot"></span><span id="gpsTxt">GPS待機中</span></div>
   </header>
   <div class="msg" id="storeWarn" role="alert" hidden></div>
 
+  <div class="view" data-view="run">
   <section class="meter">
     <div class="big" id="dist">0.00<small>km</small></div>
     <div class="row">
@@ -172,13 +209,26 @@ canvas#mPrev{height:170px}
       <div class="stat"><div class="k">今のペース <small>/km</small></div><div class="v now" id="curPace">--'--"</div></div>
       <div class="stat"><div class="k">今の時速 <small>km/h</small></div><div class="v now" id="speed">--</div></div>
     </div>
+    <div class="guide" id="guide">
+      <div class="ghead">
+        <span class="k">目標ペース</span>
+        <span class="gctl"><button id="gMinus" aria-label="目標を5秒速く">−5秒</button><b id="gTarget">--'--"</b><small>/km</small><button id="gPlus" aria-label="目標を5秒遅く">+5秒</button></span>
+      </div>
+      <div class="gsrc"><span id="gSrc"></span><button id="gReset" hidden>メニューに戻す</button></div>
+      <div class="gbar" aria-hidden="true"><i></i><i></i><i></i><div class="gneedle" id="gNeedle" hidden></div></div>
+      <div class="glabels" aria-hidden="true"><span>遅い</span><span>ちょうど良い（±10秒）</span><span>速い</span></div>
+      <div class="gstate" id="gState" role="status" aria-live="polite"></div>
+      <label class="gvoice" for="gVoice"><input type="checkbox" id="gVoice">速すぎ・遅すぎを音声と振動で知らせる</label>
+    </div>
+    <div class="btns" id="btns"></div>
+    <div class="msg" id="msg"></div>
     <div class="rmap" id="mainMap" aria-label="走行ルートの地図" hidden></div>
     <canvas id="map" aria-label="走行ルート"></canvas>
     <div class="cap" id="mapCap"></div>
-    <div class="btns" id="btns"></div>
-    <div class="msg" id="msg"></div>
   </section>
+  </div>
 
+  <div class="view" data-view="plan" hidden>
   <section class="meter" id="plan">
     <div class="planhead"><div class="mtitle" id="pTitle">ハーフマラソン練習</div><div class="count" id="pCount"></div></div>
     <div class="basis" id="pBasis"></div>
@@ -205,8 +255,11 @@ canvas#mPrev{height:170px}
     <p class="hint">走った記録は自動で照らし合わせ、達成は ✓ で表示します。痛みや強い疲れがある日は、メニューより休養を優先してください。</p>
   </section>
 
+  </div>
+
+  <div class="view" data-view="coach" hidden>
   <section class="meter" id="coach">
-    <div class="planhead"><div class="mtitle">コーチのアドバイス</div><div class="count" id="aAsOf"></div></div>
+    <div class="planhead"><div class="mtitle">ここまでの実績</div><div class="count" id="aAsOf"></div></div>
     <div class="astats" id="aStats"></div>
     <canvas id="aChart" aria-label="週ごとの走行距離"></canvas>
     <div class="legend"><span><i></i>走った距離</span><span><i class="pl"></i>メニューの予定</span></div>
@@ -217,6 +270,9 @@ canvas#mPrev{height:170px}
     </div>
   </section>
 
+  </div>
+
+  <div class="view" data-view="log" hidden>
   <div class="histhead"><h2>履歴</h2><button class="small" id="addBtn">＋ あとから追加</button></div>
 
   <section class="meter" id="manual" hidden>
@@ -260,7 +316,17 @@ canvas#mPrev{height:170px}
   <div class="msg" id="hMsg"></div>
   <p class="hint" id="ioHint">機種変更やブラウザを替えるときは、「履歴を書き出す」で保存したファイルを、移行先で「履歴を読み込む」から選んでください。今ある記録は消えず、同じ記録は重複しません。</p>
   <p class="hint" id="swStatus"></p>
+  </div>
 </div>
+
+<nav class="tabbar" aria-label="画面の切り替え">
+  <div class="tabs">
+    <button class="tab" data-tab="run"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M9.5 2.5h5M12 2.5V6M18.5 6.5l1.5-1.5"/></svg><span>走る</span><i class="live" id="liveDot" hidden></i></button>
+    <button class="tab" data-tab="plan"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4M8 14h2M12 14h2M8 17h2"/></svg><span>メニュー</span></button>
+    <button class="tab" data-tab="coach"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h14a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-8l-4.5 3.5v-3.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5z"/><path d="M8 9h8M8 12h5"/></svg><span>アドバイス</span></button>
+    <button class="tab" data-tab="log"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M9.5 20V5M15 20v-7M20.5 20V8"/></svg><span>記録</span></button>
+  </div>
+</nav>
 
 <script>
 (()=>{
@@ -314,14 +380,32 @@ const SPD_STEP=100;
 const LIVE_WIN=10000, LIVE_STALE=10000;
 let fixes=[], liveV=null, liveT=0;
 function resetLive(){fixes=[];liveV=null;liveT=0}
-function recordSpeed(){
+/* d0：この一歩の前までの距離、d：この一歩の距離、dtMs：前の測位からの時間。
+   100mの境目を通った時刻を、前後の測位から割合で求める（境目を越えた測位の時刻をそのまま使うより正確） */
+function recordSpeed(d0,d,dtMs){
   if(!run.spd){run.spd=[];run.spdNext=SPD_STEP;run.spdT=0}
-  if(run.dist<run.spdNext)return;
-  const n=Math.floor((run.dist-run.spdNext)/SPD_STEP)+1, now=elapsed(), dt=(now-run.spdT)/1000;
-  const kmh=dt>0?Math.min(40,n*SPD_STEP/dt*3.6):0;
-  for(let i=0;i<n;i++)run.spd.push(Math.round(kmh*10));
-  run.spdT=now;run.spdNext+=n*SPD_STEP;
+  const now=elapsed(), tPrev=Math.max(run.spdT,now-Math.max(0,dtMs||0));
+  while(run.dist>=run.spdNext){
+    const f=d>0?Math.min(1,Math.max(0,(run.spdNext-d0)/d)):1;
+    const tt=Math.max(run.spdT+1,tPrev+(now-tPrev)*f), sec=(tt-run.spdT)/1000;
+    run.spd.push(Math.round(Math.min(40,SPD_STEP/sec*3.6)*10));
+    run.spdT=tt;run.spdNext+=SPD_STEP;
+    smoothLagTail(run.spd);
+  }
 }
+/* GPSの「位置の遅れ」対策：遅れている間は遅い区間が続き、追いついた瞬間に極端に速い区間ができる。
+   直近の区間の中央値と比べて、速すぎる区間の直前に遅すぎる区間が続いていたら（またはその逆）、
+   その並び（最大5区間）にかかった時間を合計し、均等に配り直す。実際のペース変化はまず触らない強さに調整済み */
+function smoothLagTail(a){
+  const i=a.length-1;if(i<4)return;
+  const b=a[i],h=a.slice(Math.max(0,i-12),i).sort((p,q)=>p-q),med=h[Math.floor(h.length/2)];
+  const fast=b>med*1.4, slow=b<med*0.6;if(!fast&&!slow)return;
+  let j=i-1;while(j>=0&&i-j<=4&&(fast?a[j]<med*0.8:a[j]>med*1.2))j--;
+  if(i-j-1<1)return;
+  let sec=0;for(let q=j+1;q<=i;q++)sec+=1/Math.max(a[q],1);
+  const v=Math.round((i-j)/sec);for(let q=j+1;q<=i;q++)a[q]=v;
+}
+function cleanSpd(raw){const a=[];raw.forEach(v=>{a.push(v);smoothLagTail(a)});return a}
 function updateLive(c,t){
   if(!run||run.state!=='run'||c.accuracy>30)return;
   fixes.push([t,c.latitude,c.longitude]);
@@ -342,6 +426,7 @@ function showLive(){
   $('speed').textContent=fresh?liveV.toFixed(1):'--';
   // 時速2km未満（ほぼ止まっている）ときはペースを出さない
   $('curPace').textContent=fresh&&liveV>=2?fmtPace(3600/liveV):`--'--"`;
+  renderGuide();
 }
 function onPos(p){
   const c=p.coords; lastFix=Date.now();
@@ -358,8 +443,8 @@ function onPos(p){
     const d=hav(last,pt), dt=(pt[2]-last[2])/1000;
     if(d<Math.max(MIN_STEP,Math.min(c.accuracy*0.4,15)))return;
     if(dt>0&&d/dt>MAX_SPEED)return;
-    run.dist+=d;
-    recordSpeed();
+    const d0=run.dist;run.dist+=d;
+    recordSpeed(d0,d,pt[2]-last[2]);
   }
   run.pts.push(pt); save(KEY_CUR,run); draw(); $('gpsTxt').textContent=gpsLabel();
 }
@@ -383,7 +468,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState!==
 
 function start(){
   $('msg').textContent='';
-  run={start:Date.now(),pts:[],dist:0,activeMs:0,segStart:Date.now(),state:'run',spd:[],spdNext:SPD_STEP,spdT:0};resetLive();
+  run={start:Date.now(),pts:[],dist:0,activeMs:0,segStart:Date.now(),state:'run',spd:[],spdNext:SPD_STEP,spdT:0};resetLive();resetGuide(true);
   save(KEY_CUR,run); startWatch(); lock(); render();
 }
 function pause(){
@@ -392,7 +477,7 @@ function pause(){
   resetLive();
   save(KEY_CUR,run); unlock(); render();
 }
-function resume(){resetLive();run.segStart=Date.now();run.state='run';save(KEY_CUR,run);startWatch();lock();render()}
+function resume(){resetLive();resetGuide(false);run.segStart=Date.now();run.state='run';save(KEY_CUR,run);startWatch();lock();render()}
 function finish(){
   if(run.state==='run'){run.activeMs+=Date.now()-run.segStart}
   // 形が変わらない範囲（3m）で点を間引いて保存容量を節約する。距離は間引く前の値を使う
@@ -406,9 +491,10 @@ function discard(){run=null;del(KEY_CUR);stopWatch();unlock();render()}
 
 let askDiscard=false;
 function renderBtns(){
+  const ld=document.getElementById('liveDot');if(ld)ld.hidden=!(run&&run.state==='run');
   const b=$('btns'); b.innerHTML='';
   const mk=(t,cls,fn)=>{const e=document.createElement('button');e.textContent=t;e.className=cls||'';e.onclick=fn;b.appendChild(e)};
-  if(ART){b.innerHTML='<div class="note">Claudeの画面ではGPSが使えないため、ここでは走りながらの記録はできません。<b>走るときはGitHub版（ホーム画面のアイコン）で記録</b>し、ここへは下の「履歴を読み込む」で取り込めます。距離と時間だけなら「＋ あとから追加」から入力できます。</div>';return}
+  if(ART){b.innerHTML='<div class="note">Claudeの画面ではGPSが使えないため、ここでは走りながらの記録はできません。<b>走るときはGitHub版（ホーム画面のアイコン）で記録</b>し、ここへは「記録」タブの「履歴を読み込む」で取り込めます。距離と時間だけなら、「記録」タブの「＋ あとから追加」から入力できます。</div>';return}
   if(!run){mk('スタート','primary',start);return}
   if(askDiscard){mk('記録を破棄','danger',()=>{askDiscard=false;discard()});mk('やめる','',()=>{askDiscard=false;renderBtns()});return}
   if(run.state==='run'){mk('一時停止','',pause);mk('終了して保存','primary',finish)}
@@ -504,7 +590,7 @@ function toggleRoute(li,r){
 }
 /* 100mごとの時速（km/h）の列。記録時に保存した値があればそれを、なければルートの時刻から計算 */
 function speedProfile(r){
-  if(r.spd&&r.spd.length>=3)return {v:r.spd.map(x=>x/10),measured:true};
+  if(r.spd&&r.spd.length>=3)return {v:cleanSpd(r.spd).map(x=>x/10),measured:true};  // 保存データはそのまま、表示だけ遅れを補正
   if(r.manual||!r.pts||r.pts.length<3)return null;
   const v=[];let acc=0,next=SPD_STEP,tPrev=null,dPrev=0;
   for(let i=1;i<r.pts.length;i++){
@@ -516,7 +602,7 @@ function speedProfile(r){
       const dt=(t-tPrev)/1000;v.push(dt>0?Math.min(40,(next-dPrev)/dt*3.6):0);tPrev=t;dPrev=next;next+=SPD_STEP}
     acc+=d;
   }
-  return v.length>=3?{v,measured:false}:null;
+  return v.length>=3?{v:cleanSpd(v.map(x=>Math.round(x*10))).map(x=>x/10),measured:false}:null;
 }
 const harmonic=v=>v.length?v.length/v.reduce((s,x)=>s+1/Math.max(x,0.5),0):0;  // 同じ距離ごとの時速の平均
 function drawSpeed(cv,pf){
@@ -1014,7 +1100,7 @@ function makePlan(){
   const set=readPlanForm();if(!set)return;
   const np=genPlan(set), td=ymd(new Date());
   if(plan)np.days=plan.days.filter(x=>x.d<td).concat(np.days);  // 過去の分は実績と照らせるよう残す
-  plan=np;save(KEY_PLAN,plan);renderPlan();renderCoach();
+  plan=np;save(KEY_PLAN,plan);renderPlan();renderCoach();renderGuide();
   $('pSetWrap').open=false;pmsg('');
   $('plan').scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -1141,7 +1227,7 @@ function renderCoach(){
     const done=due.filter(x=>(act[x.d]||0)>=x.km*0.7).length;
     if(due.length>=3){
       const rate=done/due.length;
-      if(rate<0.5)add('warn',`直近2週間の予定<b>${due.length}回</b>のうち、できたのは<b>${done}回</b>です。今のメニューがきつすぎる可能性があります。「大会と目標の設定」で「今の1週間の距離」を実績に近い<b>${Math.max(8,Math.round(k28/4))}km</b>にして作り直すと、続けやすくなります。`,7);
+      if(rate<0.5)add('warn',`直近2週間の予定<b>${due.length}回</b>のうち、できたのは<b>${done}回</b>です。今のメニューがきつすぎる可能性があります。「メニュー」タブの「大会と目標の設定」で「今の1週間の距離」を実績に近い<b>${Math.max(8,Math.round(k28/4))}km</b>にして作り直すと、続けやすくなります。`,7);
       else if(rate>=0.8)add('good',`直近2週間の予定<b>${due.length}回</b>のうち<b>${done}回</b>をこなせています。この調子で続けましょう。`,2);
     }
     // しばらく走っていない
@@ -1171,7 +1257,7 @@ function renderCoach(){
       if(diff<=0)add('good',`今の記録から予想する大会（${kmLabel(D)}km）のタイムは<b>${fmtHMS(pred)}</b>です。目標の${fmtHMS(plan.goal)}に届く力がついています。`,4);
       else if(diff<=plan.goal*0.05)add('next',`予想タイムは<b>${fmtHMS(pred)}</b>で、目標まであと<b>${Math.ceil(diff/60)}分</b>です。ペース走とインターバルを予定どおりこなせば届く範囲です。`,4);
       else add('next',`予想タイムは<b>${fmtHMS(pred)}</b>で、目標の${fmtHMS(plan.goal)}より${Math.ceil(diff/60)}分遅い見込みです。目標を<b>${fmtHMS(Math.ceil(pred/300)*300)}</b>前後に見直すと、無理のないペースで練習できます。`,4);
-    }else if(pred)add('next',`今の記録から予想する大会（${kmLabel(D)}km）のタイムは<b>${fmtHMS(pred)}</b>です。「大会と目標の設定」で目標タイムを入れると、練習のペースがより正確になります。`,3);
+    }else if(pred)add('next',`今の記録から予想する大会（${kmLabel(D)}km）のタイムは<b>${fmtHMS(pred)}</b>です。「メニュー」タブの「大会と目標の設定」で目標タイムを入れると、練習のペースがより正確になります。`,3);
     // 制限時間との余裕
     if(CUT&&pred&&left>=0&&!raceRun){
       const m=(CUT-pred)/60;
@@ -1343,6 +1429,66 @@ ${coachData()}`;
   }finally{btn.disabled=false;btn.textContent='もう一度相談する'}
 }
 
+/* ---------- ペースガイド：今のペースが目標より速いか遅いかを示す ----------
+   目標は今日のメニューのペース（自分で±5秒ずつ調整も可。調整はその日だけ有効）。
+   目標との差が±10秒以内なら「ちょうど良い」。声と振動は、状態が5秒以上続いたときだけ、20秒以上あけて知らせる */
+const KEY_TGT='joglog.target.v1', KEY_VOICE='joglog.voice.v1', PACE_TOL=10, GUIDE_SPAN=45;
+let gState=null, gSince=0, gSpokenAt=0, gSpoken=null;
+function menuTarget(){
+  const td=ymd(new Date()), day=plan&&plan.days.find(x=>x.d===td);
+  if(!plan)return {pace:420,src:'目安のペース'};
+  const RP=plan.goal/raceKm(plan.settings);
+  const M={easy:[RP+70,'イージー走'],long:[RP+50,'ロング走'],tempo:[RP-15,'ペース走（ややきつい区間）'],
+           int:[RP-30,'インターバル（速く走る区間）'],rp:[RP,'レースペース走'],race:[RP,'大会の目標ペース']};
+  if(day&&M[day.type])return {pace:Math.round(M[day.type][0]),src:'今日のメニュー：'+M[day.type][1]};
+  return {pace:Math.round(RP+70),src:(day&&day.type==='rest'?'今日は休養日です。走るならイージー走の目安':'イージー走の目安')};
+}
+function getTarget(){
+  const m=menuTarget(), o=load(KEY_TGT,null);
+  if(o&&o.d===ymd(new Date())&&o.pace>=180&&o.pace<=900)return {pace:o.pace,src:`自分で設定（メニューは ${fmtPace(m.pace)}/km）`,manual:true};
+  return m;
+}
+function adjTarget(ds){
+  const p=Math.max(180,Math.min(900,getTarget().pace+ds));
+  try{localStorage.setItem(KEY_TGT,JSON.stringify({d:ymd(new Date()),pace:p}))}catch(e){}
+  renderGuide();
+}
+function resetTarget(){try{localStorage.removeItem(KEY_TGT)}catch(e){}renderGuide()}
+function resetGuide(announce){
+  gState=null;gSince=0;gSpoken=null;
+  // iPhone では、ボタンを押した瞬間に一度話しておかないと、あとで声が出ないため
+  if(announce&&$('gVoice').checked){const t=getTarget().pace;speak(`目標ペースは1キロ${Math.floor(t/60)}分${t%60?(t%60)+'秒':'ちょうど'}です`)}
+}
+const fmtDiff=s=>{s=Math.round(s);return s>=60?`${Math.floor(s/60)}分${String(s%60).padStart(2,'0')}秒`:`${s}秒`};
+function renderGuide(){
+  if(ART||!$('guide'))return;
+  const t=getTarget();
+  $('gTarget').textContent=fmtPace(t.pace);$('gSrc').textContent=t.src;$('gReset').hidden=!t.manual;
+  const st=$('gState'),nd=$('gNeedle'),cp=$('curPace');
+  const fresh=liveV!=null&&run&&run.state==='run'&&Date.now()-liveT<LIVE_STALE&&liveV>=2;
+  if(!fresh){
+    nd.hidden=true;st.className='gstate';delete cp.dataset.g;
+    st.textContent=!run?'スタートすると、今のペースが目標より速いか遅いかをここに表示します。':run.state!=='run'?'一時停止中です。':'GPSで今の速さを測っています…';
+    noteState(null);return;
+  }
+  const diff=3600/liveV-t.pace;   // プラスなら目標より遅い、マイナスなら速い（秒/km）
+  const s=Math.abs(diff)<=PACE_TOL?'ok':diff<0?'fast':'slow', d=fmtDiff(Math.abs(diff));
+  nd.hidden=false;nd.style.left=Math.max(2,Math.min(98,50-diff/GUIDE_SPAN*50))+'%';
+  st.className='gstate g-'+s;cp.dataset.g=s;
+  st.textContent=s==='ok'?`ちょうど良いペースです（目標との差 ${d}）`:s==='fast'?`速すぎます。目標より1kmあたり${d}速いので、少しゆるめましょう`:`遅めです。目標より1kmあたり${d}遅いので、少しだけ上げましょう`;
+  noteState(s);
+}
+function noteState(s){
+  const now=Date.now();
+  if(s!==gState){gState=s;gSince=now;return}
+  if(!s||!$('gVoice').checked||now-gSince<5000||s===gSpoken||now-gSpokenAt<20000)return;
+  if(s==='ok'&&gSpoken==null)return;  // 最初から目標どおりなら何も言わない
+  speak(s==='ok'?'ちょうど良いペースです':s==='fast'?'少し速いです。ペースを落としましょう':'少し遅いです。少しだけ上げましょう');
+  try{navigator.vibrate&&navigator.vibrate(s==='ok'?80:[150,100,150])}catch(e){}
+  gSpokenAt=now;gSpoken=s;
+}
+function speak(t){try{if(!window.speechSynthesis)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='ja-JP';speechSynthesis.speak(u)}catch(e){}}
+
 /* 圏外でも起動できるようにする（https で開いたときだけ有効） */
 if(ART){/* Claude 内ではオフライン起動の仕組みは使わない（状態表示は同期の状況に使う） */}
 else if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
@@ -1371,6 +1517,11 @@ if(ART){
 try{new MutationObserver(()=>{draw();renderCoach();showPrev();document.querySelectorAll('#hist li').forEach(li=>{if(li.querySelector('.rt'))closeRoute(li)})}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})}catch(e){}
 
 if(!ART)loadLeaflet().then(()=>{mapReady=true;draw()}).catch(()=>{});  // 圏外で読めなければ線だけの図のまま
+// ペースガイドの操作
+$('gMinus').onclick=()=>adjTarget(-5);$('gPlus').onclick=()=>adjTarget(5);$('gReset').onclick=resetTarget;
+try{$('gVoice').checked=localStorage.getItem(KEY_VOICE)==='1'}catch(e){}
+$('gVoice').onchange=e=>{try{localStorage.setItem(KEY_VOICE,e.target.checked?'1':'0')}catch(err){}
+  if(e.target.checked){if(window.speechSynthesis)speak('ペースの音声案内をオンにしました');else $('gState').textContent='この端末のブラウザは音声案内に対応していません。'}};
 $('addBtn').onclick=()=>openManual();
 $('expBtn').onclick=exportHistory;
 $('expFile').onclick=exportToFile;
@@ -1392,6 +1543,31 @@ $('modeIns').onclick=()=>setMode('ins');
 if(ART)run=null;
 if(run){if(run.state==='run'){startWatch();lock()}$('msg').textContent='前回の記録の続きです。'}
 render();
+
+/* ---------- 下部タブで画面を切り替える ---------- */
+const VIEWS={run:'走る',plan:'練習メニュー',coach:'コーチのアドバイス',log:'記録'}, KEY_VIEW='joglog.view.v1';
+let view=null;
+function showView(v){
+  if(!VIEWS[v])v=ART?'plan':'run';
+  const changed=v!==view;view=v;
+  document.querySelectorAll('[data-view]').forEach(e=>e.hidden=e.dataset.view!==v);
+  document.querySelectorAll('.tab').forEach(t=>{if(t.dataset.tab===v)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current')});
+  $('viewTitle').textContent=VIEWS[v];
+  $('gpsChip').hidden=ART||v!=='run';
+  try{localStorage.setItem(KEY_VIEW,v)}catch(e){}
+  try{window.history.replaceState(null,'','#'+v)}catch(e){}  // history はこのアプリでは走行記録の名前なので window. を付ける
+  if(changed)window.scrollTo(0,0);
+  // 隠れていた間は大きさが0なので、表示してから描き直す
+  if(v==='run'){draw();if(mainMap)setTimeout(()=>{mainMap.m.invalidateSize();draw()},0)}
+  if(v==='plan')renderPlan();
+  if(v==='coach')renderCoach();
+}
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>showView(t.dataset.tab));
+window.addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(VIEWS[h]&&h!==view)showView(h)});
+{ // 最初の画面：URLの指定 → 記録中なら「走る」 → 前回見ていた画面
+  const h=location.hash.slice(1);let last=null;try{last=localStorage.getItem(KEY_VIEW)}catch(e){}
+  showView(VIEWS[h]?h:(run?'run':last));
+}
 let shownDay=new Date().toDateString();
 tick=setInterval(()=>{renderLive();const d=new Date().toDateString();if(d!==shownDay){shownDay=d;renderPlan();renderCoach()}},1000);
 window.addEventListener('resize',()=>{draw();renderCoach()});
