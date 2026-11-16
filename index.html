@@ -377,7 +377,7 @@ const SPD_STEP=100;
 /* 「今の時速・今のペース」の表示用（保存しない）。GPSの測位が届くたびに更新する。
    端末がGPSの速度（ドップラー計測）を返すときはそれを、返さないときは直近10秒の移動から計算し、
    表示のちらつきを抑えつつ、大きな変化にはすぐ追いつくようにならす */
-const LIVE_WIN=10000, LIVE_STALE=10000;
+const LIVE_WIN=12000, LIVE_STALE=10000;
 let fixes=[], liveV=null, liveT=0;
 function resetLive(){fixes=[];liveV=null;liveT=0}
 /* d0：この一歩の前までの距離、d：この一歩の距離、dtMs：前の測位からの時間。
@@ -406,17 +406,32 @@ function smoothLagTail(a){
   const v=Math.round((i-j)/sec);for(let q=j+1;q<=i;q++)a[q]=v;
 }
 function cleanSpd(raw){const a=[];raw.forEach(v=>{a.push(v);smoothLagTail(a)});return a}
+/* 今の速度：端末が返す瞬間速度（ドップラー）はすばやく反応するが、機種によって2割ほど低く（高く）出る。
+   そこで直近およそ90秒の「実際に進んだ道のり」と「瞬間速度を積み上げた道のり」を比べて倍率を求め、
+   瞬間速度にその倍率を掛けて表示する（反応の速さはそのまま、値は記録の距離と一致する）。
+   瞬間速度を返さない端末では、直近12秒の道のりから計算する */
+let spdScale=1, scaleN=0, sD=0, sDD=0;
 function updateLive(c,t){
   if(!run||run.state!=='run'||c.accuracy>30)return;
-  fixes.push([t,c.latitude,c.longitude]);
+  const dop=(c.speed!=null&&!isNaN(c.speed)&&c.speed>=0)?c.speed:null;
+  const prev=fixes[fixes.length-1];
+  fixes.push([t,c.latitude,c.longitude,dop]);
   while(fixes.length&&t-fixes[0][0]>LIVE_WIN)fixes.shift();
+  // 倍率の学習：直近およそ90秒ぶんの「実際の道のり ÷ 瞬間速度の積み上げ」。走っている間だけ
+  if(prev&&dop!=null&&prev[3]!=null){const dt=(t-prev[0])/1000;
+    if(dt>0&&dt<=5&&dop>=1.5&&prev[3]>=1.5){const f=Math.exp(-dt/90);
+      sD=sD*f+hav([prev[1],prev[2]],[c.latitude,c.longitude]);sDD=sDD*f+dop*dt;
+      if(sDD>=40){spdScale=Math.min(1.5,Math.max(0.7,sD/sDD));scaleN++}}}
+  const span=fixes.length>=2?(fixes[fixes.length-1][0]-fixes[0][0])/1000:0;
+  let path=null;
+  if(span>=5){let d=0;for(let i=1;i<fixes.length;i++)d+=hav([fixes[i-1][1],fixes[i-1][2]],[fixes[i][1],fixes[i][2]]);path=d/span*3.6}
   let v=null;
-  if(c.speed!=null&&!isNaN(c.speed)&&c.speed>=0)v=c.speed*3.6;
-  else if(fixes.length>=2){const a=fixes[0],b=fixes[fixes.length-1],dt=(b[0]-a[0])/1000;
-    if(dt>=3)v=hav([a[1],a[2]],[b[1],b[2]])/dt*3.6}
+  if(dop!=null&&dop*3.6<1.5)v=dop*3.6;                   // 止まった → すぐ反映
+  else if(dop!=null&&scaleN>=1)v=dop*3.6*spdScale;        // 倍率が決まったら瞬間速度×倍率
+  else if(path!=null)v=path;                              // 決まるまで／瞬間速度がない端末
+  else if(dop!=null)v=dop*3.6;                            // 走り出し直後のつなぎ
   if(v==null)return;
   v=Math.min(v,40);
-  // 小さな揺れは半々でならし、止まる・急に上げるなど大きな変化（3割以上）にはすぐ追いつく
   const k=liveV==null?1:Math.abs(v-liveV)>0.3*Math.max(liveV,1)?0.8:0.5;
   liveV=liveV+(v-(liveV??v))*k;if(k===1)liveV=v;liveT=Date.now();
   showLive();
