@@ -179,6 +179,19 @@ ul.advice li{display:grid;grid-template-columns:4.6em 1fr;gap:10px;align-items:s
 .glabels{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:-6px}
 .gstate{font-size:15px;font-weight:700;line-height:1.5;color:var(--muted)}
 .gstate.g-ok{color:var(--accent)} .gstate.g-fast{color:var(--warn)} .gstate.g-slow{color:var(--slow)}
+.cplist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.cplist li{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:13px;border-top:1px solid var(--line);padding-top:6px}
+.cplist li b{font-family:var(--mono);font-size:14px}
+.cplist .r{text-align:right;font-family:var(--mono);white-space:nowrap;font-size:12px}
+.cplist .ok{color:var(--accent)} .cplist .warn{color:var(--warn)} .cplist .late{color:var(--warn);font-weight:700}
+.cploss{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.cploss button{flex:none;white-space:nowrap;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:13px}
+.cploss b{font-family:var(--mono);color:var(--fg);font-size:14px}
+.cprow{display:flex;align-items:center;gap:6px;color:var(--fg);font-size:14px}
+.cprow input{width:4.5em;flex:none;text-align:right;font-family:var(--mono)}
+.cprow button,.cpadd{padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:inherit;font-size:13px}
+.cpadd{align-self:flex-start}
+.art .cpbox{display:none}
 .v.now[data-g="fast"]{color:var(--warn)} .v.now[data-g="slow"]{color:var(--slow)}
 .gvoice{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
 .gvoice input{width:18px;height:18px;accent-color:var(--accent)}
@@ -220,6 +233,13 @@ canvas#mPrev{height:170px}
       <div class="gstate" id="gState" role="status" aria-live="polite"></div>
       <label class="gvoice" for="gVoice"><input type="checkbox" id="gVoice">速すぎ・遅すぎを音声と振動で知らせる</label>
     </div>
+    <div class="guide cpbox" id="cpBox" hidden>
+      <div class="ghead"><span class="k">関門の通過予想</span><span class="gsrc" id="cpRace"></span></div>
+      <div class="gstate" id="cpState" role="status" aria-live="polite"></div>
+      <ul class="cplist" id="cpList"></ul>
+      <div class="cploss">号砲からスタートラインまで<button id="cpLossM" aria-label="30秒減らす">−30秒</button><b id="cpLoss">0:00</b><button id="cpLossP" aria-label="30秒増やす">+30秒</button></div>
+      <div class="gsrc" id="cpNote">関門は号砲からの時間で判定されます。スタートラインを越えるまでにかかった時間を入れると、その分も含めて計算します。</div>
+    </div>
     <div class="btns" id="btns"></div>
     <div class="msg" id="msg"></div>
     <div class="rmap" id="mainMap" aria-label="走行ルートの地図" hidden></div>
@@ -240,6 +260,10 @@ canvas#mPrev{height:170px}
         <label for="pKm">大会の距離 (km)<input type="number" id="pKm" min="3" max="50" step="0.1" inputmode="decimal" placeholder="21.1"></label>
         <div class="lbl">制限時間（わかれば）
           <span class="hms"><input type="number" id="cH" min="0" max="8" inputmode="numeric" placeholder="2" aria-label="制限時間の時間">時間<input type="number" id="cM" min="0" max="59" inputmode="numeric" placeholder="30" aria-label="制限時間の分">分</span>
+        </div>
+        <div class="lbl">途中の関門（わかれば。号砲からの制限時間）
+          <div id="cpRows" style="display:flex;flex-direction:column;gap:6px"></div>
+          <button type="button" class="cpadd" id="cpAdd">＋ 関門を追加</button>
         </div>
         <div class="lbl">目標タイム（空欄なら履歴から予想します）
           <span class="hms"><input type="number" id="gH" min="0" max="4" inputmode="numeric" placeholder="2" aria-label="目標の時間">時間<input type="number" id="gM" min="0" max="59" inputmode="numeric" placeholder="00" aria-label="目標の分">分<input type="number" id="gS" min="0" max="59" inputmode="numeric" placeholder="00" aria-label="目標の秒">秒</span>
@@ -520,7 +544,7 @@ function renderLive(){
   $('dist').innerHTML=(m/1000).toFixed(2)+'<small>km</small>';
   $('time').textContent=fmtT(ms);
   $('pace').textContent=fmtP(ms,m);
-  showLive();
+  showLive();renderCP();
   if(lastFix&&Date.now()-lastFix>15000&&run&&run.state==='run'){$('gpsDot').className='dot bad';$('gpsTxt').textContent='GPS信号待ち'}
 }
 function draw(){
@@ -1045,7 +1069,7 @@ function genPlan(set){
     int:n=>({type:'int',km:r05(2.5+n*1.4),title:`インターバル ${r05(2.5+n*1.4)}km`,detail:`1.5kmジョグ → 1kmを${pc(P.int)}で走り、400mジョグでつなぐ ×${n}本 → 1kmジョグ`}),
     rp:t=>({type:'rp',km:t+2,title:`レースペース走 ${t+2}km`,detail:`1kmジョグ → ${t}kmを${pc(P.rp)}（本番のペース） → 1kmジョグ`}),
     rpSet:(n,each)=>{const km=r05(2+n*each+(n-1)*0.4);return {type:'rp',km,title:`レースペース走 ${km}km`,detail:`1kmジョグ → ${each}kmを${pc(P.rp)}で走り、400mジョグでつなぐ ×${n}本 → 1kmジョグ`}},
-    race:()=>({type:'race',km:D,title:`大会当日 ${kmLabel(D)}km`,detail:`目標 ${fmtHMS(goal)}（${pc(RP)}）。最初の5kmは目標より少し遅めに入り、後半に上げる`+(set.cutoff?`。制限時間は${fmtHMS(set.cutoff)}（平均${pc(set.cutoff/D)}より遅くならないように）`:'')})
+    race:()=>({type:'race',km:D,title:`大会当日 ${kmLabel(D)}km`,detail:`目標 ${fmtHMS(goal)}（${pc(RP)}）。最初の5kmは目標より少し遅めに入り、後半に上げる`+(set.cutoff?`。制限時間は${fmtHMS(set.cutoff)}（平均${pc(set.cutoff/D)}より遅くならないように）`:'')+(set.checks&&set.checks.length?`。途中の関門：${set.checks.map(c=>`${kmLabel(c[0])}km ${Math.round(c[1]/60)}分`).join('、')}`:'')})
   };
   const days=new Map();
   const put=(date,o)=>{if(date<today||date>race)return;days.set(ymd(date),Object.assign({d:ymd(date)},o))};
@@ -1100,7 +1124,17 @@ function readPlanForm(){
   if(gs&&(gs<km*150||gs>km*720)){pmsg(`目標タイムが${kmLabel(km)}kmに対して速すぎるか遅すぎます。入力を確かめてください。`,true);return null}
   const co=(+$('cH').value||0)*3600+(+$('cM').value||0)*60;
   if(gs&&co&&gs>co){pmsg('目標タイムが制限時間より遅くなっています。制限時間より前にゴールできる目標にしてください。',true);return null}
-  return {race,km:Math.abs(km-21.1)<0.05?HALF:km,cutoff:co||null,goal:gs||null,days:+$('pDays').value,longDow:+$('pLong').value,weekly:parseFloat($('pWeekly').value)||null};
+  const checks=[];
+  for(const row of document.querySelectorAll('#cpRows .cprow')){
+    const k=parseFloat(row.querySelector('.cpKm').value), mi=parseFloat(row.querySelector('.cpMin').value);
+    if(!k&&!mi)continue;
+    if(!(k>0&&k<km)||!(mi>0)){pmsg(`関門は「0より大きく${kmLabel(km)}kmより手前の地点」と「制限の分」を両方入れてください。`,true);return null}
+    checks.push([k,Math.round(mi*60)]);
+  }
+  checks.sort((a,b)=>a[0]-b[0]);
+  for(let i=1;i<checks.length;i++)if(checks[i][1]<=checks[i-1][1]){pmsg('関門の制限時間は、先の地点ほど長くなるように入れてください。',true);return null}
+  if(co&&checks.length&&checks[checks.length-1][1]>=co){pmsg('途中の関門の制限が、ゴールの制限時間より長くなっています。',true);return null}
+  return {race,km:Math.abs(km-21.1)<0.05?HALF:km,cutoff:co||null,checks:checks.length?checks:null,goal:gs||null,days:+$('pDays').value,longDow:+$('pLong').value,weekly:parseFloat($('pWeekly').value)||null};
 }
 function fillPlanForm(){
   if(!plan)return;const s=plan.settings;
@@ -1108,6 +1142,7 @@ function fillPlanForm(){
   $('pWeekly').value=s.weekly?Math.round(s.weekly):'';
   $('pKm').value=kmLabel(raceKm(s));
   if(s.cutoff){$('cH').value=Math.floor(s.cutoff/3600);$('cM').value=Math.floor(s.cutoff/60)%60}else{$('cH').value='';$('cM').value=''}
+  $('cpRows').innerHTML='';(s.checks||[]).forEach(c=>addCpRow(c[0],c[1]/60));
   if(s.goal){$('gH').value=Math.floor(s.goal/3600);$('gM').value=Math.floor(s.goal/60)%60;$('gS').value=Math.round(s.goal%60)}
   else ['gH','gM','gS'].forEach(id=>$(id).value='');
 }
@@ -1115,7 +1150,7 @@ function makePlan(){
   const set=readPlanForm();if(!set)return;
   const np=genPlan(set), td=ymd(new Date());
   if(plan)np.days=plan.days.filter(x=>x.d<td).concat(np.days);  // 過去の分は実績と照らせるよう残す
-  plan=np;save(KEY_PLAN,plan);renderPlan();renderCoach();renderGuide();
+  plan=np;save(KEY_PLAN,plan);renderPlan();renderCoach();renderGuide();renderCP();
   $('pSetWrap').open=false;pmsg('');
   $('plan').scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -1136,7 +1171,7 @@ function renderPlan(){
   const set=plan.settings, td=ymd(new Date()), today=parseYmd(td), race=parseYmd(set.race), left=daysBetween(today,race);
   $('pCount').innerHTML=left>0?`大会まで<b>${left}</b>日`:left===0?'<b>今日は大会当日</b>':'大会は終了しました';
   const D=raceKm(set);$('pTitle').textContent=raceName(D)+'練習';
-  $('pBasis').textContent=`${mdw(race)}・${kmLabel(D)}km・目標 ${fmtHMS(plan.goal)}（${fmtPace(plan.goal/D)}/km）`+(set.cutoff?`・制限時間 ${fmtHMS(set.cutoff)}`:'')
+  $('pBasis').textContent=`${mdw(race)}・${kmLabel(D)}km・目標 ${fmtHMS(plan.goal)}（${fmtPace(plan.goal/D)}/km）`+(set.cutoff?`・制限時間 ${fmtHMS(set.cutoff)}`:'')+(set.checks&&set.checks.length?`・関門 ${set.checks.map(c=>`${kmLabel(c[0])}km ${Math.round(c[1]/60)}分`).join(' / ')}`:'')
     +({goal:'',pred:'・最近の記録から予想したタイムです',default:'・目標タイムを設定するとペースが合います'}[plan.goalSrc]||'');
   const act=actualByDay();
 
@@ -1504,6 +1539,70 @@ function noteState(s){
 }
 function speak(t){try{if(!window.speechSynthesis)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='ja-JP';speechSynthesis.speak(u)}catch(e){}}
 
+/* ---------- 関門の通過予想 ----------
+   関門は号砲からの時間で判定されるため、一時停止中も時計は進むものとして「スタートからの実時間＋号砲からのロス」で計算する。
+   予想は、ここまでの平均ペース（走っていた時間÷距離）で残りを走った場合の到着時刻 */
+const KEY_LOSS='joglog.loss.v1';
+function addCpRow(k,mi){
+  const r=document.createElement('div');r.className='cprow';
+  r.innerHTML=`<input type="number" class="cpKm" min="0.1" step="0.1" inputmode="decimal" placeholder="15" aria-label="関門の地点 km">km地点<input type="number" class="cpMin" min="1" step="1" inputmode="numeric" placeholder="105" aria-label="関門の制限 分">分以内<button type="button" aria-label="この関門を削除">削除</button>`;
+  if(k!=null)r.querySelector('.cpKm').value=kmLabel(k);
+  if(mi!=null)r.querySelector('.cpMin').value=Math.round(mi);
+  r.querySelector('button').onclick=()=>r.remove();
+  $('cpRows').appendChild(r);
+}
+function checkpoints(){
+  if(!plan)return [];const s=plan.settings, D=raceKm(s);
+  const a=(s.checks||[]).filter(c=>c[0]<D).map(c=>({km:c[0],sec:c[1]}));
+  if(s.cutoff)a.push({km:D,sec:s.cutoff,goal:true});
+  return a;
+}
+function getLoss(){try{const o=JSON.parse(localStorage.getItem(KEY_LOSS)||'null');if(o&&o.d===ymd(new Date()))return o.s}catch(e){}return 0}
+function setLoss(v){try{localStorage.setItem(KEY_LOSS,JSON.stringify({d:ymd(new Date()),s:Math.max(0,Math.min(1800,v))}))}catch(e){}renderCP()}
+const fmtMS=sec=>{sec=Math.round(Math.abs(sec));const h=Math.floor(sec/3600),m=Math.floor(sec/60)%60,x=sec%60;return h?`${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}`:`${m}:${String(x).padStart(2,'0')}`};
+const fmtGap=sec=>{sec=Math.round(Math.abs(sec));const m=Math.floor(sec/60),x=sec%60;return m?`${m}分${String(x).padStart(2,'0')}秒`:`${x}秒`};
+const cpName=c=>c.goal?'ゴール':`${kmLabel(c.km)}km関門`;
+let cpSaid={};
+function renderCP(){
+  const box=$('cpBox');if(!box||ART)return;
+  const cps=checkpoints();
+  const past=plan&&daysBetween(parseYmd(ymd(new Date())),parseYmd(plan.settings.race))<0;
+  box.hidden=!cps.length||past;if(box.hidden)return;
+  const loss=getLoss();$('cpLoss').textContent=fmtMS(loss);
+  const D=raceKm(plan.settings);
+  $('cpRace').textContent=`${mdw(parseYmd(plan.settings.race))}・${kmLabel(D)}km`;
+  const list=$('cpList'),st=$('cpState');
+  if(!run){
+    st.className='gstate';
+    st.textContent='走り始めると、今のペースのまま行った場合に各関門へ何分前に着くかを表示します。';
+    list.innerHTML=cps.map(c=>`<li><span>${cpName(c)}</span><span class="r"><b>${fmtMS(c.sec)}</b> 以内（平均${fmtPace(c.sec/c.km)}/km）</span></li>`).join('');
+    return;
+  }
+  const wall=(Date.now()-run.start)/1000+loss, km=run.dist/1000;
+  run.cp=run.cp||{};
+  // 通過した関門：通過した瞬間の余裕を覚えておく
+  cps.forEach(c=>{const key=String(c.km);if(km>=c.km&&run.cp[key]==null){run.cp[key]=Math.round(c.sec-wall);save(KEY_CUR,run);
+    const g=run.cp[key];if($('gVoice').checked)speak(g>=0?`${c.goal?'ゴール':kmLabel(c.km)+'キロ関門'}を、${fmtGap(g)}前に通過しました`:`${c.goal?'ゴール':kmLabel(c.km)+'キロ関門'}の制限を${fmtGap(g)}過ぎています`)}});
+  const pace=km>=0.3?elapsed()/1000/km:null;   // ここまでの平均ペース（走っていた時間÷距離、秒/km）。号砲からのロスは含めない
+  const rows=cps.map(c=>{const key=String(c.km);
+    if(run.cp[key]!=null){const g=run.cp[key];return `<li><span>${cpName(c)} <small>（${fmtMS(c.sec)}）</small></span><span class="r ${g>=0?'ok':'late'}">${g>=0?`✓ ${fmtGap(g)}前に通過`:`${fmtGap(g)}遅れて通過`}</span></li>`}
+    if(!pace)return `<li><span>${cpName(c)}</span><span class="r"><b>${fmtMS(c.sec)}</b> 以内</span></li>`;
+    const eta=wall+(c.km-km)*pace, mg=c.sec-eta, cls=mg<0?'late':mg<120?'warn':'ok';
+    return `<li><span>${cpName(c)} <small>（${fmtMS(c.sec)}）</small></span><span class="r ${cls}">予想 ${fmtMS(eta)}・${mg>=0?fmtGap(mg)+'前':fmtGap(mg)+'遅れ'}</span></li>`});
+  list.innerHTML=rows.join('');
+  const next=cps.find(c=>run.cp[String(c.km)]==null);
+  if(!next){st.className='gstate g-ok';st.textContent='すべての関門を通過しました。';return}
+  if(!pace){st.className='gstate';st.textContent='300mほど走ると予想を出します。';return}
+  const left=next.sec-wall, need=left/(next.km-km), eta=wall+(next.km-km)*pace, mg=next.sec-eta;
+  st.className='gstate g-'+(mg>=120?'ok':'fast');
+  st.textContent=left<=0?`${cpName(next)}の制限時間を過ぎました。`:
+    `次は${cpName(next)}：このままだと${mg>=0?fmtGap(mg)+'前に到着':fmtGap(mg)+'遅れる'}予想。間に合うには平均${fmtPace(need)}/kmより速く`;
+  // 余裕が2分を切ったら、関門ごとに1回だけ音声で知らせる
+  const k2=next.km+(mg<0?'x':'w');
+  if(mg<120&&$('gVoice').checked&&!cpSaid[k2]){cpSaid[k2]=1;speak(mg<0?`このままだと${cpName(next)}に間に合いません。1キロ${fmtPaceSpeak(need)}より速く走りましょう`:`${cpName(next)}まで余裕が${fmtGap(mg)}です`)}
+}
+function fmtPaceSpeak(sec){sec=Math.round(sec);return `${Math.floor(sec/60)}分${sec%60?sec%60+'秒':'ちょうど'}`}
+
 /* 圏外でも起動できるようにする（https で開いたときだけ有効） */
 if(ART){/* Claude 内ではオフライン起動の仕組みは使わない（状態表示は同期の状況に使う） */}
 else if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
@@ -1542,6 +1641,8 @@ $('expBtn').onclick=exportHistory;
 $('expFile').onclick=exportToFile;
 $('expShare').onclick=exportByShare;
 $('pMake').onclick=makePlan;
+$('cpAdd').onclick=()=>addCpRow();
+$('cpLossM').onclick=()=>setLoss(getLoss()-30);$('cpLossP').onclick=()=>setLoss(getLoss()+30);
 $('impIn').onchange=importHistory;
 $('mCancel').onclick=closeManual;
 $('mSave').onclick=saveManual;
