@@ -41,7 +41,8 @@ h1{font-size:20px;margin:0;letter-spacing:.04em}
 /* 下部のタブ。画面の下端に固定し、ホームバーの分だけ余白を足す */
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:1000;background:var(--surface);border-top:1px solid var(--line);
   padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
-.tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));max-width:520px;margin:0 auto}
+.tabs{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);max-width:560px;margin:0 auto}
+.tabs [hidden]{display:none}
 button.tab{background:none;border:0;border-radius:12px;padding:6px 0 4px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:600;color:var(--muted);position:relative;min-width:0}
 .tab svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .tab[aria-current="page"]{color:var(--accent)}
@@ -191,6 +192,32 @@ ul.advice li{display:grid;grid-template-columns:4.6em 1fr;gap:10px;align-items:s
 .cprow input{width:4.5em;flex:none;text-align:right;font-family:var(--mono)}
 .cprow button,.cpadd{padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:inherit;font-size:13px}
 .cpadd{align-self:flex-start}
+/* メーター画面 */
+.gauges{display:flex;flex-direction:column;gap:6px}
+.gauge{position:relative}
+.gauge svg{display:block;width:100%;max-width:300px;margin:0 auto;height:auto;overflow:visible}
+.gauge .trk{fill:none;stroke:var(--line);stroke-width:14}
+.gauge .band{fill:none;stroke:var(--accent);stroke-width:14;opacity:.85}
+.gauge .tk{stroke:var(--muted);stroke-width:1.2}
+.gauge .tk.mj{stroke:var(--fg);stroke-width:2}
+.gauge .lb{fill:var(--muted);font-size:11px;font-family:var(--mono);text-anchor:middle;dominant-baseline:middle}
+.gauge .ndl{stroke:var(--fg);stroke-width:3.5;stroke-linecap:round;transition:transform .6s ease-out}
+.gauge .hub{fill:var(--fg)}
+.gauge[data-g=ok] .ndl{stroke:var(--accent)} .gauge[data-g=ok] .hub{fill:var(--accent)}
+.gauge[data-g=fast] .ndl{stroke:var(--warn)} .gauge[data-g=fast] .hub{fill:var(--warn)}
+.gauge[data-g=slow] .ndl{stroke:var(--slow)} .gauge[data-g=slow] .hub{fill:var(--slow)}
+.gauge .avg{fill:var(--muted);transition:transform .6s ease-out}
+.gauge .val{fill:var(--fg);font-size:30px;font-weight:700;font-family:var(--mono);text-anchor:middle}
+.gauge .unit{fill:var(--muted);font-size:12px;text-anchor:middle}
+.gauge[data-g=ok] .val{fill:var(--accent)} .gauge[data-g=fast] .val{fill:var(--warn)} .gauge[data-g=slow] .val{fill:var(--slow)}
+.mstats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mstats .v{font-family:var(--mono);font-size:24px;font-weight:700}
+.mtgt{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.mtgt b{color:var(--fg);font-family:var(--mono);font-size:16px}
+.mtgt .gctl button{white-space:nowrap}
+.mkey{display:flex;gap:14px;font-size:12px;color:var(--muted);justify-content:center}
+.mkey i{display:inline-block;width:14px;height:6px;border-radius:3px;background:var(--accent);margin-right:5px;vertical-align:middle}
+.mkey i.a{width:8px;height:8px;border-radius:0;background:var(--muted);clip-path:polygon(50% 100%,0 0,100% 0)}
 .art .cpbox{display:none}
 .v.now[data-g="fast"]{color:var(--warn)} .v.now[data-g="slow"]{color:var(--slow)}
 .gvoice{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
@@ -212,6 +239,24 @@ canvas#mPrev{height:170px}
     <div class="gps" id="gpsChip"><span class="dot" id="gpsDot"></span><span id="gpsTxt">GPS待機中</span></div>
   </header>
   <div class="msg" id="storeWarn" role="alert" hidden></div>
+
+  <div class="view" data-view="meter" hidden>
+  <section class="meter">
+    <div class="mstats">
+      <div class="stat"><div class="k">距離</div><div class="v" id="mDist">0.00 km</div></div>
+      <div class="stat"><div class="k">時間</div><div class="v" id="mTime">0:00:00</div></div>
+    </div>
+    <div class="gauges">
+      <div class="gauge" id="gSpd" role="img" aria-label="時速のメーター"></div>
+      <div class="gauge" id="gPace" role="img" aria-label="1kmあたりのペースのメーター"></div>
+    </div>
+    <div class="mkey"><span><i></i>目標の範囲（±10秒/km）</span><span><i class="a"></i>平均</span></div>
+    <div class="mtgt"><span>目標 <b id="mTarget">--'--"</b>/km <small id="mTargetKmh"></small></span>
+      <span class="gctl"><button id="mMinus" aria-label="目標を5秒速く">−5秒</button><button id="mPlus" aria-label="目標を5秒遅く">+5秒</button></span></div>
+    <div class="gstate" id="mState" role="status" aria-live="polite"></div>
+    <div class="btns" id="btns2"></div>
+  </section>
+  </div>
 
   <div class="view" data-view="run">
   <section class="meter">
@@ -345,6 +390,7 @@ canvas#mPrev{height:170px}
 
 <nav class="tabbar" aria-label="画面の切り替え">
   <div class="tabs">
+    <button class="tab" data-tab="meter"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 17a8.5 8.5 0 1 1 17 0"/><path d="M12 17l4.5-5.5"/><circle cx="12" cy="17" r="1.3"/><path d="M5.8 12.3l1.3.8M12 8.5v1.5M18.2 12.3l-1.3.8"/></svg><span>メーター</span></button>
     <button class="tab" data-tab="run"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M9.5 2.5h5M12 2.5V6M18.5 6.5l1.5-1.5"/></svg><span>走る</span><i class="live" id="liveDot" hidden></i></button>
     <button class="tab" data-tab="plan"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4M8 14h2M12 14h2M8 17h2"/></svg><span>メニュー</span></button>
     <button class="tab" data-tab="coach"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h14a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-8l-4.5 3.5v-3.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5z"/><path d="M8 9h8M8 12h5"/></svg><span>アドバイス</span></button>
@@ -530,9 +576,11 @@ function discard(){run=null;del(KEY_CUR);stopWatch();unlock();render()}
 
 let askDiscard=false;
 function renderBtns(){
-  const ld=document.getElementById('liveDot');if(ld)ld.hidden=!(run&&run.state==='run');
+  ['liveDot','liveDot2'].forEach(id=>{const ld=document.getElementById(id);if(ld)ld.hidden=!(run&&run.state==='run')});
   const b=$('btns'); b.innerHTML='';
-  const mk=(t,cls,fn)=>{const e=document.createElement('button');e.textContent=t;e.className=cls||'';e.onclick=fn;b.appendChild(e)};
+  const mk=(t,cls,fn)=>{const e=document.createElement('button');e.textContent=t;e.className=cls||'';e.onclick=fn;b.appendChild(e);
+    const b2=$('btns2');if(b2){const c=e.cloneNode(true);c.onclick=fn;b2.appendChild(c)}};
+  if($('btns2'))$('btns2').innerHTML='';
   if(ART){b.innerHTML='<div class="note">Claudeの画面ではGPSが使えないため、ここでは走りながらの記録はできません。<b>走るときはGitHub版（ホーム画面のアイコン）で記録</b>し、ここへは「記録」タブの「履歴を読み込む」で取り込めます。距離と時間だけなら、「記録」タブの「＋ あとから追加」から入力できます。</div>';return}
   if(!run){mk('スタート','primary',start);return}
   if(askDiscard){mk('記録を破棄','danger',()=>{askDiscard=false;discard()});mk('やめる','',()=>{askDiscard=false;renderBtns()});return}
@@ -544,7 +592,7 @@ function renderLive(){
   $('dist').innerHTML=(m/1000).toFixed(2)+'<small>km</small>';
   $('time').textContent=fmtT(ms);
   $('pace').textContent=fmtP(ms,m);
-  showLive();renderCP();
+  showLive();renderCP();renderMeters();
   if(lastFix&&Date.now()-lastFix>15000&&run&&run.state==='run'){$('gpsDot').className='dot bad';$('gpsTxt').textContent='GPS信号待ち'}
 }
 function draw(){
@@ -1601,6 +1649,61 @@ function renderCP(){
   const k2=next.km+(mg<0?'x':'w');
   if(mg<120&&$('gVoice').checked&&!cpSaid[k2]){cpSaid[k2]=1;speak(mg<0?`このままだと${cpName(next)}に間に合いません。1キロ${fmtPaceSpeak(need)}より速く走りましょう`:`${cpName(next)}まで余裕が${fmtGap(mg)}です`)}
 }
+/* ---------- メーター（アナログの速度計） ----------
+   左下から右下まで240°の目盛り。時速は 0〜16km/h、ペースは 10'00"（左）〜4'00"（右）で、どちらも右に行くほど速い。
+   目標ペースの ±10秒/km を色付きの帯で示す */
+const G_SWEEP=240, KMH_MAX=16, P_SLOW=600, P_FAST=240;
+const polar=(r,deg)=>[100+r*Math.sin(deg*Math.PI/180),100-r*Math.cos(deg*Math.PI/180)];
+const arcPath=(r,a0,a1)=>{const [x0,y0]=polar(r,a0),[x1,y1]=polar(r,a1);return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${a1-a0>180?1:0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`};
+const kmhFrac=v=>Math.max(0,Math.min(1,v/KMH_MAX));
+const paceFrac=p=>Math.max(0,Math.min(1,(P_SLOW-p)/(P_SLOW-P_FAST)));
+const fracDeg=f=>-G_SWEEP/2+G_SWEEP*f;
+function buildGauge(el,unit,ticks){
+  let t='';
+  ticks.forEach(k=>{const a=fracDeg(k.f),[x0,y0]=polar(k.mj?66:70,a),[x1,y1]=polar(77,a);
+    t+=`<line class="tk${k.mj?' mj':''}" x1="${x0.toFixed(2)}" y1="${y0.toFixed(2)}" x2="${x1.toFixed(2)}" y2="${y1.toFixed(2)}"/>`;
+    if(k.lb!=null){const [lx,ly]=polar(55,a);t+=`<text class="lb" x="${lx.toFixed(2)}" y="${ly.toFixed(2)}">${k.lb}</text>`}});
+  el.innerHTML=`<svg viewBox="0 -8 200 192" aria-hidden="true">
+    <path class="trk" d="${arcPath(86,-G_SWEEP/2,G_SWEEP/2)}"/><path class="band" d=""/>${t}
+    <polygon class="avg" points="100,4 95,-5 105,-5" style="transform-origin:100px 100px"/>
+    <line class="ndl" x1="100" y1="100" x2="100" y2="30" style="transform-origin:100px 100px;transform:rotate(${-G_SWEEP/2}deg)"/>
+    <circle class="hub" cx="100" cy="100" r="6"/>
+    <text class="val" x="100" y="162">--</text><text class="unit" x="100" y="180">${unit}</text></svg>`;
+}
+let metersBuilt=false;
+function renderMeters(){
+  const a=$('gSpd'),b=$('gPace');if(!a||ART)return;
+  if(!metersBuilt){metersBuilt=true;
+    const kt=[];for(let v=0;v<=KMH_MAX;v++)kt.push({f:kmhFrac(v),mj:v%2===0,lb:v%2===0?v:null});
+    buildGauge(a,'km/h',kt);
+    const pt=[];for(let p=P_SLOW;p>=P_FAST;p-=30)pt.push({f:paceFrac(p),mj:p%60===0,lb:p%60===0?`${p/60}'`:null});
+    buildGauge(b,'分/km（右ほど速い）',pt);
+  }
+  const ms=elapsed(), m=run?run.dist:0;
+  $('mDist').textContent=(m/1000).toFixed(2)+' km';$('mTime').textContent=fmtT(ms);
+  const tp=getTarget().pace, lo=tp+PACE_TOL, hi=tp-PACE_TOL;  // lo=遅い側、hi=速い側（秒/km）
+  $('mTarget').textContent=fmtPace(tp);$('mTargetKmh').textContent=`（時速 ${(3600/lo).toFixed(1)}〜${(3600/hi).toFixed(1)}km）`;
+  a.querySelector('.band').setAttribute('d',arcPath(86,fracDeg(kmhFrac(3600/lo)),fracDeg(kmhFrac(3600/hi))));
+  b.querySelector('.band').setAttribute('d',arcPath(86,fracDeg(paceFrac(lo)),fracDeg(paceFrac(hi))));
+  const fresh=liveV!=null&&run&&run.state==='run'&&Date.now()-liveT<LIVE_STALE;
+  const v=fresh?liveV:0, pace=fresh&&liveV>=2?3600/liveV:null;
+  const st=pace==null?null:Math.abs(pace-tp)<=PACE_TOL?'ok':pace<tp?'fast':'slow';
+  [a,b].forEach(g=>{if(st)g.dataset.g=st;else delete g.dataset.g});
+  a.querySelector('.ndl').style.transform=`rotate(${fracDeg(kmhFrac(v))}deg)`;
+  b.querySelector('.ndl').style.transform=`rotate(${fracDeg(pace==null?0:paceFrac(pace))}deg)`;
+  a.querySelector('.val').textContent=fresh?v.toFixed(1):'--';
+  b.querySelector('.val').textContent=pace==null?`--'--"`:fmtPace(pace);
+  // 平均（走った時間÷距離）の印
+  const avgOk=run&&m>=100&&ms>0, av=avgOk?m/ms*3600:0;
+  [[a,avgOk?fracDeg(kmhFrac(av)):null],[b,avgOk?fracDeg(paceFrac(3600/av)):null]].forEach(([g,deg])=>{const e=g.querySelector('.avg');
+    e.style.display=deg==null?'none':'';if(deg!=null)e.style.transform=`rotate(${deg}deg)`});
+  a.setAttribute('aria-label',`時速のメーター：${fresh?v.toFixed(1)+'km/h':'計測前'}、目標は時速${(3600/lo).toFixed(1)}〜${(3600/hi).toFixed(1)}km`);
+  b.setAttribute('aria-label',`ペースのメーター：${pace==null?'計測前':fmtPace(pace)+'/km'}、目標は${fmtPace(hi)}〜${fmtPace(lo)}/km`);
+  const ms_=$('mState');ms_.className='gstate'+(st?' g-'+st:'');
+  ms_.textContent=!run?'スタートすると針が動きます。色の付いた範囲に針を収めるように走りましょう。':run.state!=='run'?'一時停止中です。':
+    !fresh?'GPSで今の速さを測っています…':st==null?'ほぼ止まっています。':st==='ok'?'目標の範囲内です':st==='fast'?`速すぎます（目標より${fmtDiff(tp-pace)}速い）`:`遅めです（目標より${fmtDiff(pace-tp)}遅い）`;
+}
+
 function fmtPaceSpeak(sec){sec=Math.round(sec);return `${Math.floor(sec/60)}分${sec%60?sec%60+'秒':'ちょうど'}`}
 
 /* 圏外でも起動できるようにする（https で開いたときだけ有効） */
@@ -1622,6 +1725,7 @@ if(!ART&&/iPhone|iPad|iPod/.test(navigator.userAgent)&&!window.navigator.standal
 if(ART){
   document.body.classList.add('art');
   $('gpsChip').hidden=true;$('mapBtn').hidden=true;
+  document.querySelector('.tab[data-tab=meter]').hidden=true;
   $('ioHint').textContent='GitHub版の記録を取り込むときは、GitHub版の「履歴を書き出す」で保存したファイルを、ここで「履歴を読み込む」から選んでください。ここで書き出したファイルは、GitHub版でも読み込めます。同じ記録は重複しません。';
   cloudStart();
   if(window.claude&&typeof claude.use==='function')claude.use('sample').then(sm=>{if(sm)$('aiBox').hidden=false});
@@ -1642,6 +1746,7 @@ $('expFile').onclick=exportToFile;
 $('expShare').onclick=exportByShare;
 $('pMake').onclick=makePlan;
 $('cpAdd').onclick=()=>addCpRow();
+$('mMinus').onclick=()=>{adjTarget(-5);renderMeters()};$('mPlus').onclick=()=>{adjTarget(5);renderMeters()};
 $('cpLossM').onclick=()=>setLoss(getLoss()-30);$('cpLossP').onclick=()=>setLoss(getLoss()+30);
 $('impIn').onchange=importHistory;
 $('mCancel').onclick=closeManual;
@@ -1661,19 +1766,20 @@ if(run){if(run.state==='run'){startWatch();lock()}$('msg').textContent='前回�
 render();
 
 /* ---------- 下部タブで画面を切り替える ---------- */
-const VIEWS={run:'走る',plan:'練習メニュー',coach:'コーチのアドバイス',log:'記録'}, KEY_VIEW='joglog.view.v1';
+const VIEWS={meter:'メーター',run:'走る',plan:'練習メニュー',coach:'コーチのアドバイス',log:'記録'}, KEY_VIEW='joglog.view.v1';
 let view=null;
 function showView(v){
-  if(!VIEWS[v])v=ART?'plan':'run';
+  if(!VIEWS[v]||(ART&&v==='meter'))v=ART?'plan':'run';
   const changed=v!==view;view=v;
   document.querySelectorAll('[data-view]').forEach(e=>e.hidden=e.dataset.view!==v);
   document.querySelectorAll('.tab').forEach(t=>{if(t.dataset.tab===v)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current')});
   $('viewTitle').textContent=VIEWS[v];
-  $('gpsChip').hidden=ART||v!=='run';
+  $('gpsChip').hidden=ART||(v!=='run'&&v!=='meter');
   try{localStorage.setItem(KEY_VIEW,v)}catch(e){}
   try{window.history.replaceState(null,'','#'+v)}catch(e){}  // history はこのアプリでは走行記録の名前なので window. を付ける
   if(changed)window.scrollTo(0,0);
   // 隠れていた間は大きさが0なので、表示してから描き直す
+  if(v==='meter')renderMeters();
   if(v==='run'){draw();if(mainMap)setTimeout(()=>{mainMap.m.invalidateSize();draw()},0)}
   if(v==='plan')renderPlan();
   if(v==='coach')renderCoach();
@@ -1682,7 +1788,7 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>showView(t.dataset.ta
 window.addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(VIEWS[h]&&h!==view)showView(h)});
 { // 最初の画面：URLの指定 → 記録中なら「走る」 → 前回見ていた画面
   const h=location.hash.slice(1);let last=null;try{last=localStorage.getItem(KEY_VIEW)}catch(e){}
-  showView(VIEWS[h]?h:(run?'run':last));
+  showView(VIEWS[h]?h:(run?(last==='meter'?'meter':'run'):last));
 }
 let shownDay=new Date().toDateString();
 tick=setInterval(()=>{renderLive();const d=new Date().toDateString();if(d!==shownDay){shownDay=d;renderPlan();renderCoach()}},1000);
