@@ -192,6 +192,11 @@ ul.advice li{display:grid;grid-template-columns:4.6em 1fr;gap:10px;align-items:s
 .cprow input{width:4.5em;flex:none;text-align:right;font-family:var(--mono)}
 .cprow button,.cpadd{padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:inherit;font-size:13px}
 .cpadd{align-self:flex-start}
+.laps{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.laps .last{color:var(--fg);font-size:15px}
+.laps .last b{font-family:var(--mono);font-size:18px}
+.laps .ok{color:var(--accent)} .laps .fast{color:var(--warn)} .laps .slow{color:var(--slow)}
+.laps .all{font-family:var(--mono);font-size:12px;line-height:1.6;word-break:keep-all}
 /* メーター画面 */
 .gauges{display:flex;flex-direction:column;gap:6px}
 .gauge{position:relative}
@@ -254,6 +259,8 @@ canvas#mPrev{height:170px}
     <div class="mtgt"><span>目標 <b id="mTarget">--'--"</b>/km <small id="mTargetKmh"></small></span>
       <span class="gctl"><button id="mMinus" aria-label="目標を5秒速く">−5秒</button><button id="mPlus" aria-label="目標を5秒遅く">+5秒</button></span></div>
     <div class="gstate" id="mState" role="status" aria-live="polite"></div>
+    <div class="laps" id="mLap" hidden></div>
+    <label class="gvoice" for="mLapVoice"><input type="checkbox" id="mLapVoice" class="lapv">1kmごとにラップを読み上げる</label>
     <div class="btns" id="btns2"></div>
   </section>
   </div>
@@ -277,6 +284,8 @@ canvas#mPrev{height:170px}
       <div class="glabels" aria-hidden="true"><span>遅い</span><span>ちょうど良い（±10秒）</span><span>速い</span></div>
       <div class="gstate" id="gState" role="status" aria-live="polite"></div>
       <label class="gvoice" for="gVoice"><input type="checkbox" id="gVoice">速すぎ・遅すぎを音声と振動で知らせる</label>
+      <label class="gvoice" for="gLapVoice"><input type="checkbox" id="gLapVoice" class="lapv">1kmごとにラップを読み上げる</label>
+      <div class="laps" id="gLap" hidden></div>
     </div>
     <div class="guide cpbox" id="cpBox" hidden>
       <div class="ghead"><span class="k">関門の通過予想</span><span class="gsrc" id="cpRace"></span></div>
@@ -459,6 +468,7 @@ function recordSpeed(d0,d,dtMs){
     const f=d>0?Math.min(1,Math.max(0,(run.spdNext-d0)/d)):1;
     const tt=Math.max(run.spdT+1,tPrev+(now-tPrev)*f), sec=(tt-run.spdT)/1000;
     run.spd.push(Math.round(Math.min(40,SPD_STEP/sec*3.6)*10));
+    if(run.spdNext%1000===0)onLap(run.spdNext/1000,tt);   // 1kmの境目：100mの境目と同じく補間した時刻でラップを出す
     run.spdT=tt;run.spdNext+=SPD_STEP;
     smoothLagTail(run.spd);
   }
@@ -554,6 +564,8 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState!==
 function start(){
   $('msg').textContent='';
   run={start:Date.now(),pts:[],dist:0,activeMs:0,segStart:Date.now(),state:'run',spd:[],spdNext:SPD_STEP,spdT:0};resetLive();resetGuide(true);
+  if(lapVoiceOn()&&!$('gVoice').checked)speak('スタート。1キロごとにラップをお知らせします');   // iPhoneでは、ボタンを押したときに一度話しておく必要がある
+  renderLaps();
   save(KEY_CUR,run); startWatch(); lock(); render();
 }
 function pause(){
@@ -577,6 +589,7 @@ function discard(){run=null;del(KEY_CUR);stopWatch();unlock();render()}
 let askDiscard=false;
 function renderBtns(){
   ['liveDot','liveDot2'].forEach(id=>{const ld=document.getElementById(id);if(ld)ld.hidden=!(run&&run.state==='run')});
+  if(typeof renderLaps==='function')renderLaps();
   const b=$('btns'); b.innerHTML='';
   const mk=(t,cls,fn)=>{const e=document.createElement('button');e.textContent=t;e.className=cls||'';e.onclick=fn;b.appendChild(e);
     const b2=$('btns2');if(b2){const c=e.cloneNode(true);c.onclick=fn;b2.appendChild(c)}};
@@ -1704,6 +1717,28 @@ function renderMeters(){
     !fresh?'GPSで今の速さを測っています…':st==null?'ほぼ止まっています。':st==='ok'?'目標の範囲内です':st==='fast'?`速すぎます（目標より${fmtDiff(tp-pace)}速い）`:`遅めです（目標より${fmtDiff(pace-tp)}遅い）`;
 }
 
+/* ---------- 1kmごとのラップ ----------
+   走っていた時間（一時停止を除く）で1kmごとのタイムを出し、目標ペースと比べて表示・読み上げる */
+const KEY_LAPV='joglog.lapvoice.v1';
+function lapVoiceOn(){try{return localStorage.getItem(KEY_LAPV)!=='0'}catch(e){return true}}   // 初期値はオン
+function lapJudge(sec){const d=sec-getTarget().pace;return Math.abs(d)<=PACE_TOL?['ok','目標どおり']:d<0?['fast',`目標より${fmtDiff(-d)}速い`]:['slow',`目標より${fmtDiff(d)}遅い`]}
+function onLap(km,tt){
+  run.laps=run.laps||[];
+  const sec=Math.round((tt-(run.lapT||0))/1000);run.laps.push(sec);run.lapT=tt;
+  if(lapVoiceOn()){const [,j]=lapJudge(sec);
+    speak(`${km}キロ。ラップ${Math.floor(sec/60)}分${sec%60?(sec%60)+'秒':'ちょうど'}。${j==='目標どおり'?'目標どおりです':j+'です'}`);
+    gSpokenAt=Date.now();   // ラップの読み上げを、ペース案内の声で途中で切らないように
+  }
+  renderLaps();
+}
+function renderLaps(){
+  const L=run&&run.laps||[];
+  ['mLap','gLap'].forEach(id=>{const el=$(id);if(!el)return;el.hidden=!L.length;if(!L.length)return;
+    const sec=L[L.length-1],[c,j]=lapJudge(sec);
+    el.innerHTML=`<div class="last">${L.length}km ラップ <b class="${c}">${fmtPace(sec)}</b> <span class="${c}">${j}</span></div>`+
+      (L.length>1?`<div class="all">${L.map((x,i)=>`${i+1}km ${fmtPace(x)}`).join('　')}</div>`:'')});
+}
+
 function fmtPaceSpeak(sec){sec=Math.round(sec);return `${Math.floor(sec/60)}分${sec%60?sec%60+'秒':'ちょうど'}`}
 
 /* 圏外でも起動できるようにする（https で開いたときだけ有効） */
@@ -1740,6 +1775,11 @@ $('gMinus').onclick=()=>adjTarget(-5);$('gPlus').onclick=()=>adjTarget(5);$('gRe
 try{$('gVoice').checked=localStorage.getItem(KEY_VOICE)==='1'}catch(e){}
 $('gVoice').onchange=e=>{try{localStorage.setItem(KEY_VOICE,e.target.checked?'1':'0')}catch(err){}
   if(e.target.checked){if(window.speechSynthesis)speak('ペースの音声案内をオンにしました');else $('gState').textContent='この端末のブラウザは音声案内に対応していません。'}};
+document.querySelectorAll('.lapv').forEach(cb=>{cb.checked=lapVoiceOn();cb.onchange=e=>{
+  try{localStorage.setItem(KEY_LAPV,e.target.checked?'1':'0')}catch(err){}
+  document.querySelectorAll('.lapv').forEach(o=>o.checked=e.target.checked);
+  if(e.target.checked&&window.speechSynthesis)speak('1キロごとにラップをお知らせします')}});
+renderLaps();
 $('addBtn').onclick=()=>openManual();
 $('expBtn').onclick=exportHistory;
 $('expFile').onclick=exportToFile;
