@@ -192,6 +192,16 @@ ul.advice li{display:grid;grid-template-columns:4.6em 1fr;gap:10px;align-items:s
 .cprow input{width:4.5em;flex:none;text-align:right;font-family:var(--mono)}
 .cprow button,.cpadd{padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:inherit;font-size:13px}
 .cpadd{align-self:flex-start}
+.meta{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.meta .k{font-size:13px;font-weight:700}
+.meta table{width:100%;border-collapse:collapse;font-size:13px}
+.meta th,.meta td{padding:5px 2px;border-top:1px solid var(--line);text-align:right;white-space:nowrap;font-family:var(--mono);font-weight:400}
+.meta thead td,.meta thead th{border-top:0;font-family:inherit;font-size:11px;color:var(--muted)}
+.meta th{text-align:left;font-family:inherit}
+.meta th small{display:block;font-size:11px;color:var(--muted)}
+.meta td b{font-size:16px}
+.meta .ok{color:var(--accent)} .meta .warn{color:var(--warn)} .meta .late{color:var(--warn);font-weight:700}
+.meta tr.done{color:var(--muted)} .meta .warnc{color:var(--warn)}
 .laps{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
 .laps .last{color:var(--fg);font-size:15px}
 .laps .last b{font-family:var(--mono);font-size:18px}
@@ -256,6 +266,12 @@ canvas#mPrev{height:170px}
       <div class="gauge" id="gPace" role="img" aria-label="1kmあたりのペースのメーター"></div>
     </div>
     <div class="mkey"><span><i></i>目標の範囲（±10秒/km）</span><span><i class="a"></i>平均</span></div>
+    <div class="meta" id="mEta" hidden>
+      <div class="k">関門とゴールの到着予想</div>
+      <div class="gsrc" id="mEtaHead"></div>
+      <table><thead><tr><th>地点</th><td>到着時刻</td><td>号砲から</td><td>制限まで</td></tr></thead><tbody id="mEtaBody"></tbody></table>
+      <div class="cploss">号砲からスタートラインまで<button id="mLossM" aria-label="30秒減らす">−30秒</button><b id="mLoss">0:00</b><button id="mLossP" aria-label="30秒増やす">+30秒</button></div>
+    </div>
     <div class="mtgt"><span>目標 <b id="mTarget">--'--"</b>/km <small id="mTargetKmh"></small></span>
       <span class="gctl"><button id="mMinus" aria-label="目標を5秒速く">−5秒</button><button id="mPlus" aria-label="目標を5秒遅く">+5秒</button></span></div>
     <div class="gstate" id="mState" role="status" aria-live="polite"></div>
@@ -1624,6 +1640,44 @@ const fmtMS=sec=>{sec=Math.round(Math.abs(sec));const h=Math.floor(sec/3600),m=M
 const fmtGap=sec=>{sec=Math.round(Math.abs(sec));const m=Math.floor(sec/60),x=sec%60;return m?`${m}分${String(x).padStart(2,'0')}秒`:`${x}秒`};
 const cpName=c=>c.goal?'ゴール':`${kmLabel(c.km)}km関門`;
 let cpSaid={};
+// 通過した関門：通過した瞬間の余裕を覚えておく（走る画面・メーター画面の両方から呼ばれる）
+function cpPasses(cps,wall,km){
+  run.cp=run.cp||{};
+  cps.forEach(c=>{if(c.sec==null)return;const key=String(c.km);if(km>=c.km&&run.cp[key]==null){run.cp[key]=Math.round(c.sec-wall);save(KEY_CUR,run);
+    const g=run.cp[key];if($('gVoice').checked)speak(g>=0?`${c.goal?'ゴール':kmLabel(c.km)+'キロ関門'}を、${fmtGap(g)}前に通過しました`:`${c.goal?'ゴール':kmLabel(c.km)+'キロ関門'}の制限を${fmtGap(g)}過ぎています`)}});
+}
+/* メーター画面の到着予想：今のペース（GPSの今の速さ）で残りの距離を走った場合に、各関門とゴールへ何時に着くか。
+   今のペースが取れないとき（止まっている・一時停止中）は、ここまでの平均ペースで計算する */
+function etaPoints(){
+  if(!plan)return [];const D=raceKm(plan.settings), a=checkpoints();
+  if(!a.some(c=>c.goal))a.push({km:D,sec:null,goal:true});   // 制限時間がなくてもゴールの予想は出す
+  return a;
+}
+const hhmm=ms=>{const d=new Date(ms);return `${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`};
+function renderEta(){
+  const el=$('mEta');if(!el||ART)return;
+  const pts=etaPoints();el.hidden=!pts.length;if(!pts.length)return;
+  const loss=getLoss();$('mLoss').textContent=fmtMS(loss);
+  const head=$('mEtaHead'),body=$('mEtaBody');
+  if(!run){
+    head.textContent='走り始めると、今のペースで残りを走った場合の到着時刻を表示します。';
+    body.innerHTML=pts.map(c=>`<tr><th>${cpName(c)}</th><td>—</td><td>—</td><td>${c.sec!=null?fmtMS(c.sec)+' 以内':''}</td></tr>`).join('');
+    return;
+  }
+  const now=Date.now(), wall=(now-run.start)/1000+loss, km=run.dist/1000;
+  cpPasses(pts,wall,km);
+  const fresh=liveV!=null&&liveV>=2&&run.state==='run'&&now-liveT<LIVE_STALE;
+  const pace=fresh?3600/liveV:km>=0.3?elapsed()/1000/km:null;
+  head.innerHTML=pace==null?'300mほど走ると到着予想を出します。':
+    `${fresh?'今のペース':'<span class="warnc">止まっているため、平均ペース</span>'} <b>${fmtPace(pace)}</b>/km で残りを走った場合`;
+  body.innerHTML=pts.map(c=>{const key=String(c.km);
+    if(run.cp&&run.cp[key]!=null){const g=run.cp[key];
+      return `<tr class="done"><th>${cpName(c)}</th><td colspan="2">✓ 通過</td><td class="${g>=0?'ok':'late'}">${g>=0?fmtGap(g)+'前':fmtGap(g)+'遅れ'}</td></tr>`}
+    if(km>=c.km)return `<tr class="done"><th>${cpName(c)}</th><td colspan="3">✓ 通過</td></tr>`;
+    if(pace==null)return `<tr><th>${cpName(c)}</th><td>—</td><td>—</td><td>${c.sec!=null?fmtMS(c.sec)+' 以内':''}</td></tr>`;
+    const rest=(c.km-km)*pace, eta=wall+rest, mg=c.sec!=null?c.sec-eta:null, cls=mg==null?'':mg<0?'late':mg<120?'warn':'ok';
+    return `<tr><th>${cpName(c)}<small>あと${kmLabel(Math.round((c.km-km)*10)/10)}km</small></th><td><b>${hhmm(now+rest*1000)}</b></td><td>${fmtMS(eta)}</td><td class="${cls}">${mg==null?'—':mg>=0?fmtGap(mg)+'前':fmtGap(mg)+'遅れ'}</td></tr>`}).join('');
+}
 function renderCP(){
   const box=$('cpBox');if(!box||ART)return;
   const cps=checkpoints();
@@ -1640,10 +1694,7 @@ function renderCP(){
     return;
   }
   const wall=(Date.now()-run.start)/1000+loss, km=run.dist/1000;
-  run.cp=run.cp||{};
-  // 通過した関門：通過した瞬間の余裕を覚えておく
-  cps.forEach(c=>{const key=String(c.km);if(km>=c.km&&run.cp[key]==null){run.cp[key]=Math.round(c.sec-wall);save(KEY_CUR,run);
-    const g=run.cp[key];if($('gVoice').checked)speak(g>=0?`${c.goal?'ゴール':kmLabel(c.km)+'キロ関門'}を、${fmtGap(g)}前に通過しました`:`${c.goal?'ゴール':kmLabel(c.km)+'キロ関門'}の制限を${fmtGap(g)}過ぎています`)}});
+  cpPasses(cps,wall,km);
   const pace=km>=0.3?elapsed()/1000/km:null;   // ここまでの平均ペース（走っていた時間÷距離、秒/km）。号砲からのロスは含めない
   const rows=cps.map(c=>{const key=String(c.km);
     if(run.cp[key]!=null){const g=run.cp[key];return `<li><span>${cpName(c)} <small>（${fmtMS(c.sec)}）</small></span><span class="r ${g>=0?'ok':'late'}">${g>=0?`✓ ${fmtGap(g)}前に通過`:`${fmtGap(g)}遅れて通過`}</span></li>`}
@@ -1712,6 +1763,7 @@ function renderMeters(){
     e.style.display=deg==null?'none':'';if(deg!=null)e.style.transform=`rotate(${deg}deg)`});
   a.setAttribute('aria-label',`時速のメーター：${fresh?v.toFixed(1)+'km/h':'計測前'}、目標は時速${(3600/lo).toFixed(1)}〜${(3600/hi).toFixed(1)}km`);
   b.setAttribute('aria-label',`ペースのメーター：${pace==null?'計測前':fmtPace(pace)+'/km'}、目標は${fmtPace(hi)}〜${fmtPace(lo)}/km`);
+  renderEta();
   const ms_=$('mState');ms_.className='gstate'+(st?' g-'+st:'');
   ms_.textContent=!run?'スタートすると針が動きます。色の付いた範囲に針を収めるように走りましょう。':run.state!=='run'?'一時停止中です。':
     !fresh?'GPSで今の速さを測っています…':st==null?'ほぼ止まっています。':st==='ok'?'目標の範囲内です':st==='fast'?`速すぎます（目標より${fmtDiff(tp-pace)}速い）`:`遅めです（目標より${fmtDiff(pace-tp)}遅い）`;
@@ -1788,6 +1840,7 @@ $('pMake').onclick=makePlan;
 $('cpAdd').onclick=()=>addCpRow();
 $('mMinus').onclick=()=>{adjTarget(-5);renderMeters()};$('mPlus').onclick=()=>{adjTarget(5);renderMeters()};
 $('cpLossM').onclick=()=>setLoss(getLoss()-30);$('cpLossP').onclick=()=>setLoss(getLoss()+30);
+$('mLossM').onclick=()=>{setLoss(getLoss()-30);renderMeters()};$('mLossP').onclick=()=>{setLoss(getLoss()+30);renderMeters()};
 $('impIn').onchange=importHistory;
 $('mCancel').onclick=closeManual;
 $('mSave').onclick=saveManual;
