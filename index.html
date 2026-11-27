@@ -120,6 +120,14 @@ button:disabled{opacity:.45;cursor:default}
 .cap{font-size:12px;color:var(--muted);margin-top:-8px}
 li .n,li .d{cursor:pointer}
 li .rtl{color:var(--accent);margin-left:6px}
+#hist li{padding:12px 2px;gap:4px 8px}
+#hist li .n{font-size:14px;color:var(--muted);font-weight:500;display:flex;align-items:baseline;gap:4px;flex-wrap:wrap}
+#hist li .n b{font-size:20px;color:var(--fg);font-weight:700}
+#hist li .n .t{margin-left:8px;color:var(--fg);font-weight:600;font-size:15px}
+#hist li .d{display:flex;flex-direction:column;gap:1px;line-height:1.5}
+#hist li .d b{font-family:var(--mono);color:var(--fg);font-weight:600}
+#hist li .a{gap:4px}
+#hist li .a button{padding:8px 9px;min-height:36px}
 li canvas.rt{grid-column:1/-1;height:170px;margin-top:8px}
 .rmap{height:240px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--bg);position:relative;z-index:0}
 li .rmap{grid-column:1/-1;margin-top:8px}
@@ -162,8 +170,8 @@ canvas#aChart{height:150px;background:transparent}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px;background:var(--accent)}
 .legend i.pl{height:2px;border-radius:0;background:var(--fg);vertical-align:3px}
 ul.advice{gap:12px}
-ul.advice li{display:grid;grid-template-columns:4.6em 1fr;gap:10px;align-items:start;border:0;padding:0}
-.lv{font-size:11px;font-weight:700;border-radius:999px;padding:2px 0;text-align:center;white-space:nowrap;border:1px solid var(--line);color:var(--muted)}
+ul.advice li{display:grid;grid-template-columns:4.3em 1fr;gap:10px;align-items:start;border:0;padding:0}
+.lv{font-size:11px;font-weight:700;border-radius:999px;padding:2px 8px;text-align:center;white-space:nowrap;border:1px solid var(--line);color:var(--muted);justify-self:start;margin-top:2px}
 .lv.warn{color:var(--warn);border-color:var(--warn)}
 .lv.next{color:var(--accent);border-color:var(--accent)}
 .lv.good{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
@@ -499,7 +507,7 @@ function hav(a,b){const R=6371000,r=Math.PI/180;
 const elapsed=()=>!run?0:run.activeMs+(run.state==='run'&&run.segStart?Date.now()-run.segStart:0);
 function fmtT(ms){const s=Math.floor(ms/1000);return `${Math.floor(s/3600)}:${String(Math.floor(s/60)%60).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`}
 function fmtP(ms,m){if(m<50)return `--'--"`;const spk=ms/1000/(m/1000);if(!isFinite(spk)||spk>5999)return `--'--"`;
-  return `${Math.floor(spk/60)}'${String(Math.round(spk%60)).padStart(2,'0')}"`}
+  const t=Math.round(spk);return `${Math.floor(t/60)}'${String(t%60).padStart(2,'0')}"`}  // 先に秒へ丸める（6'59.6"を6'60"にしない）
 
 /* 時速の記録：100m 進むごとに、その100mの時速（0.1km/h 単位の整数）を1つだけ保存する。
    ハーフでも約200個の数字で済み、地点を間引いても速度の細かさは失われない */
@@ -791,8 +799,8 @@ function listHist(){
   history.forEach((r,i)=>{
     const li=document.createElement('li'), d=new Date(r.start);
     const ds=`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
-    li.innerHTML=`<div class="n">${(r.dist/1000).toFixed(2)} km ・ ${fmtT(r.ms)}</div>
-      <div class="a"></div><div class="d">${ds} ・ ペース ${fmtP(r.ms,r.dist)}/km${r.manual?'<span class="tag">あとから</span>':''}${r.edited?'<span class="tag">編集済み</span>':''}<span class="rtl">▾ルート</span></div>`;
+    li.innerHTML=`<div class="n"><b>${(r.dist/1000).toFixed(2)}</b> km<span class="t">${fmtT(r.ms)}</span></div>
+      <div class="a"></div><div class="d"><span>${ds}</span><span>ペース <b>${fmtP(r.ms,r.dist)}</b>/km${r.manual?'<span class="tag">あとから</span>':''}${r.edited?'<span class="tag">編集済み</span>':''}<span class="rtl">▾ルート</span></span></div>`;
     const a=li.querySelector('.a');
     li.querySelector('.n').onclick=li.querySelector('.d').onclick=()=>toggleRoute(li,r);
     const ed=document.createElement('button');ed.textContent='編集';ed.onclick=()=>openManual(r);a.append(ed);
