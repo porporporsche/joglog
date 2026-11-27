@@ -2,7 +2,7 @@
    - アプリ本体はキャッシュから即起動し、裏で最新版を取得（次回起動時に反映）
    - 地図部品（Leaflet）と、一度見た地図画像もキャッシュして圏外で再表示
    - 中身の見えない形式（opaque）の応答は保存容量を大きく消費するため保存しない */
-const VERSION='joglog-v11';
+const VERSION='joglog-v12';
 const SHELL = VERSION + '-shell';
 const RUNTIME = VERSION + '-runtime';
 const TILES = VERSION + '-tiles';
@@ -18,7 +18,8 @@ const SHELL_FILES = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(SHELL).then(c => c.addAll(SHELL_FILES)).then(() => self.skipWaiting()));
+  // ブラウザやGitHub Pagesの一時保存（最大10分）を通さず、必ず最新のファイルを取りに行く
+  e.waitUntil(caches.open(SHELL).then(c => c.addAll(SHELL_FILES.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -64,7 +65,8 @@ self.addEventListener('fetch', e => {
       const cache = await caches.open(SHELL);
       const key = req.mode === 'navigate' ? './index.html' : req;
       const cached = await cache.match(key, { ignoreSearch: true });
-      const update = fetch(req).then(res => {
+      // 裏での更新も一時保存を通さずに確かめる（変わっていなければ通信は小さく済む）
+      const update = (req.mode === 'navigate' ? fetch(new Request('./index.html', { cache: 'no-cache' })) : fetch(req, { cache: 'no-cache' })).then(res => {
         if (res.ok) cache.put(key, res.clone()).catch(() => {});
         return res;
       }).catch(() => null);

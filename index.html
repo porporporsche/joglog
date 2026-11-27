@@ -656,6 +656,14 @@ function discard(){run=null;del(KEY_CUR);stopWatch();unlock();render()}
 
 let askDiscard=false;
 let askFinish=false, askFinishT=0;
+const APP_VERSION='v12';   // sw.js の VERSION と合わせる
+let swUpdateReady=false;
+function applySwUpdate(){
+  if(!swUpdateReady)return;
+  if(run){$('swStatus').textContent='新しい版を受け取りました。記録が終わったら切り替わります。';return}   // 記録中は切り替えない
+  try{if(sessionStorage.getItem('joglog.swreload')===APP_VERSION+'>'+Date.now().toString().slice(0,-4))return;sessionStorage.setItem('joglog.swreload',APP_VERSION+'>'+Date.now().toString().slice(0,-4))}catch(e){}
+  swUpdateReady=false;location.reload();
+}
 /* 走っている間のボタンは「長押し（約0.8秒）」で動く。ポケットの中や腕振りで触れても止まらないように。
    軽く触れただけのときは、長押しで操作することを案内するだけ */
 const HOLD_MS=800;
@@ -678,7 +686,7 @@ function renderBtns(){
   const b=$('btns'); b.innerHTML='';$('dockMsg').textContent='';
   const mk=(t,cls,fn,label)=>{const e=document.createElement('button');e.textContent=t;e.className=cls||'';e.onclick=fn;if(label)e.setAttribute('aria-label',label);b.appendChild(e)};
   if(ART){$('artNote').hidden=false;$('artNote').innerHTML='Claudeの画面ではGPSが使えないため、ここでは走りながらの記録はできません。<b>走るときはGitHub版（ホーム画面のアイコン）で記録</b>し、ここへは「記録」タブの「履歴を読み込む」で取り込めます。距離と時間だけなら、「記録」タブの「＋ あとから追加」から入力できます。';return}
-  if(!run){askFinish=false;mk('スタート','primary',start);return}
+  if(!run){askFinish=false;mk('スタート','primary',start);if(swUpdateReady)setTimeout(applySwUpdate,2500);return}
   if(askDiscard){$('dockMsg').textContent='この記録を消します。元に戻せません。';mk('記録を破棄','danger',()=>{askDiscard=false;discard()});mk('やめる','',()=>{askDiscard=false;renderBtns()});return}
   // 走っている途中で終了を押し間違えないように、終了はもう一度確かめる（6秒で元に戻る）
   if(askFinish){$('dockMsg').textContent='記録を終了して保存しますか？';
@@ -1878,12 +1886,18 @@ function fmtPaceSpeak(sec){sec=Math.round(sec);return `${Math.floor(sec/60)}分$
 /* 圏外でも起動できるようにする（https で開いたときだけ有効） */
 if(ART){/* Claude 内ではオフライン起動の仕組みは使わない（状態表示は同期の状況に使う） */}
 else if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
-  navigator.serviceWorker.register('sw.js').then(reg=>{
-    navigator.serviceWorker.ready.then(()=>{$('swStatus').textContent='オフライン起動に対応済みです。圏外でもホーム画面から開けます。'});
-    reg.addEventListener('updatefound',()=>{const w=reg.installing;if(!w)return;
-      w.addEventListener('statechange',()=>{if(w.state==='activated'&&navigator.serviceWorker.controller)$('swStatus').textContent='新しい版を受け取りました。次に開いたときから反映されます。'})});
+  /* 新しい版を受け取ったら自動で切り替える。ただし記録中は切り替えず、記録が終わってから */
+  const hadCtl=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(!hadCtl)return;                      // 初めて入れたときは切り替え不要
+    swUpdateReady=true;applySwUpdate();
+  });
+  navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{
+    navigator.serviceWorker.ready.then(()=>{$('swStatus').textContent=`オフライン起動に対応済みです。圏外でもホーム画面から開けます。（版 ${APP_VERSION}）`});
+    // ホーム画面のアプリは開いたままになりやすいので、画面に戻ってきたときにも新しい版を確かめる
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')reg.update().catch(()=>{})});
   }).catch(()=>{$('swStatus').textContent='オフライン起動の準備ができませんでした。電波のある場所で開き直してください。'});
-}else{$('swStatus').textContent='オフライン起動は、https のページ（GitHub Pages など）で開いたときに使えます。'}
+}else{$('swStatus').textContent=`オフライン起動は、https のページ（GitHub Pages など）で開いたときに使えます。（版 ${APP_VERSION}）`}
 // iPhone の Safari で開いたままだと、7日間使わないと記録が消されることがある
 if(!ART&&/iPhone|iPad|iPod/.test(navigator.userAgent)&&!window.navigator.standalone){
   const w=$('storeWarn');w.hidden=false;w.className='msg';
