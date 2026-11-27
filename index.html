@@ -71,6 +71,9 @@ canvas{width:100%;height:180px;border-radius:10px;background:var(--bg);display:b
 .dockhandle{display:none;width:100%;padding:6px 10px;font-size:12px;font-weight:600;color:var(--muted);background:transparent;border:1px dashed var(--line);border-radius:999px}
 .dock.collapsed .dockhandle{display:block}
 .dock.collapsed .btns,.dock.collapsed .dockmsg{display:none}
+/* メーター・走る画面では、下のタブも操作ボタンと一緒に隠れる */
+.tabbar.collapsed .tabs{display:none}
+.tabbar.collapsed{padding-top:8px}
 .dock .btns button{padding:14px 10px;font-size:17px;border-radius:14px}
 .dock .btns button.primary{font-size:18px}
 .dockmsg{font-size:12px;color:var(--warn);text-align:center;margin-top:6px}
@@ -469,7 +472,7 @@ canvas#mPrev{height:170px}
 </div>
 
 <nav class="tabbar" aria-label="画面の切り替え">
-  <div class="dock" id="dock" hidden><button type="button" class="dockhandle" id="dockHandle" aria-label="操作ボタンを表示">▲ タップで操作ボタンを表示</button><div class="btns" id="btns" role="group" aria-label="記録の操作"></div><div class="dockmsg" id="dockMsg" role="status" aria-live="polite"></div></div>
+  <div class="dock" id="dock" hidden><button type="button" class="dockhandle" id="dockHandle" aria-label="ボタンを表示">▲ タップでボタンを表示</button><div class="btns" id="btns" role="group" aria-label="記録の操作"></div><div class="dockmsg" id="dockMsg" role="status" aria-live="polite"></div></div>
   <div class="tabs">
     <button class="tab" data-tab="meter"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 17a8.5 8.5 0 1 1 17 0"/><path d="M12 17l4.5-5.5"/><circle cx="12" cy="17" r="1.3"/><path d="M5.8 12.3l1.3.8M12 8.5v1.5M18.2 12.3l-1.3.8"/></svg><span>メーター</span></button>
     <button class="tab" data-tab="run"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M9.5 2.5h5M12 2.5V6M18.5 6.5l1.5-1.5"/></svg><span>走る</span><i class="live" id="liveDot" hidden></i></button>
@@ -660,7 +663,7 @@ function discard(){run=null;del(KEY_CUR);stopWatch();unlock();render()}
 
 let askDiscard=false;
 let askFinish=false, askFinishT=0;
-const APP_VERSION='v13';   // sw.js の VERSION と合わせる
+const APP_VERSION='v14';   // sw.js の VERSION と合わせる
 let swUpdateReady=false;
 function applySwUpdate(){
   if(!swUpdateReady)return;
@@ -677,11 +680,11 @@ let dockT=0;
 function dockKeepOpen(){return !!(run&&run.state!=='run')||askFinish||askDiscard||!!document.querySelector('#btns .holding')}
 function dockShow(){
   const d=$('dock');if(!d||d.hidden)return;
-  d.classList.remove('collapsed');clearTimeout(dockT);
+  d.classList.remove('collapsed');document.querySelector('.tabbar').classList.remove('collapsed');clearTimeout(dockT);
   if(dockKeepOpen())return;
   dockT=setTimeout(()=>{if(dockKeepOpen()){dockShow();return}
     if(document.activeElement&&d.contains(document.activeElement))document.activeElement.blur();
-    d.classList.add('collapsed')},run?5000:8000);
+    d.classList.add('collapsed');document.querySelector('.tabbar').classList.add('collapsed')},run?5000:8000);
 }
 function mkHold(parent,label,fn){
   const e=document.createElement('button');e.type='button';e.className='hold';
@@ -1988,7 +1991,8 @@ function showView(v){
   document.querySelectorAll('.tab').forEach(t=>{if(t.dataset.tab===v)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current')});
   $('viewTitle').textContent=VIEWS[v];
   $('gpsChip').hidden=ART||(v!=='run'&&v!=='meter');
-  const dockOn=!ART&&(v==='run'||v==='meter');$('dock').hidden=!dockOn;document.body.classList.toggle('dock-on',dockOn);if(dockOn)dockShow();
+  const dockOn=!ART&&(v==='run'||v==='meter');$('dock').hidden=!dockOn;document.body.classList.toggle('dock-on',dockOn);
+  if(dockOn)dockShow();else{clearTimeout(dockT);$('dock').classList.remove('collapsed');document.querySelector('.tabbar').classList.remove('collapsed')}
   try{localStorage.setItem(KEY_VIEW,v)}catch(e){}
   try{window.history.replaceState(null,'','#'+v)}catch(e){}  // history はこのアプリでは走行記録の名前なので window. を付ける
   if(changed)window.scrollTo(0,0);

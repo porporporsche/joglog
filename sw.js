@@ -2,7 +2,7 @@
    - アプリ本体はキャッシュから即起動し、裏で最新版を取得（次回起動時に反映）
    - 地図部品（Leaflet）と、一度見た地図画像もキャッシュして圏外で再表示
    - 中身の見えない形式（opaque）の応答は保存容量を大きく消費するため保存しない */
-const VERSION='joglog-v13';
+const VERSION='joglog-v14';
 const SHELL = VERSION + '-shell';
 const RUNTIME = VERSION + '-runtime';
 const TILES = VERSION + '-tiles';
