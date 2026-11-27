@@ -70,6 +70,15 @@ canvas{width:100%;height:180px;border-radius:10px;background:var(--bg);display:b
 .dock .btns button{padding:14px 10px;font-size:17px;border-radius:14px}
 .dock .btns button.primary{font-size:18px}
 .dockmsg{font-size:12px;color:var(--warn);text-align:center;margin-top:6px}
+/* 走っている間：小さく控えめに。長押しで中の帯が左から満ちていく */
+.dock .btns button.hold{position:relative;overflow:hidden;padding:8px 10px;font-size:14px;font-weight:600;background:transparent;color:var(--muted);border:1px dashed var(--line);border-radius:12px;
+  display:flex;align-items:center;justify-content:center;gap:6px;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none;isolation:isolate}
+.dock .btns button.hold small{font-size:10px;font-weight:500;opacity:.8}
+.dock .btns button.hold::before{content:'';position:absolute;inset:0;background:var(--line);transform:scaleX(0);transform-origin:left;z-index:-1}
+.dock .btns button.hold.holding{color:var(--fg)}
+.dock .btns button.hold.holding::before{transform:scaleX(1);transition:transform .8s linear}
+.dock .btns button.hold>*{position:relative}
+@media (prefers-reduced-motion:reduce){.dock .btns button.hold.holding::before{transition:none}}
 .dockmsg:empty{display:none}
 body.dock-on{padding-bottom:calc(166px + env(safe-area-inset-bottom,0px))}
 button{font:inherit;font-weight:700;border:0;border-radius:12px;padding:16px;flex:1;cursor:pointer;background:var(--surface);color:var(--fg);border:1px solid var(--line)}
@@ -647,6 +656,22 @@ function discard(){run=null;del(KEY_CUR);stopWatch();unlock();render()}
 
 let askDiscard=false;
 let askFinish=false, askFinishT=0;
+/* 走っている間のボタンは「長押し（約0.8秒）」で動く。ポケットの中や腕振りで触れても止まらないように。
+   軽く触れただけのときは、長押しで操作することを案内するだけ */
+const HOLD_MS=800;
+function mkHold(parent,label,fn){
+  const e=document.createElement('button');e.type='button';e.className='hold';
+  e.innerHTML=`<span>${label}</span><small>長押し</small>`;e.setAttribute('aria-label',label+'（長押しで操作）');
+  let t=0,fired=false;
+  const begin=ev=>{if(t)return;fired=false;e.classList.add('holding');t=setTimeout(()=>{t=0;fired=true;e.classList.remove('holding');try{navigator.vibrate&&navigator.vibrate(30)}catch(_){}fn()},HOLD_MS)};
+  const end=()=>{if(!t)return;clearTimeout(t);t=0;e.classList.remove('holding');if(!fired)$('dockMsg').textContent='押し間違いを防ぐため、走っている間はボタンを長押し（約1秒）して操作します'};
+  e.addEventListener('pointerdown',ev=>{if(ev.button>0)return;try{e.setPointerCapture(ev.pointerId)}catch(_){}begin(ev)});
+  e.addEventListener('pointerup',end);e.addEventListener('pointercancel',end);e.addEventListener('lostpointercapture',end);
+  e.addEventListener('keydown',ev=>{if((ev.key==='Enter'||ev.key===' ')&&!ev.repeat){ev.preventDefault();begin(ev)}});
+  e.addEventListener('keyup',ev=>{if(ev.key==='Enter'||ev.key===' ')end()});
+  e.addEventListener('contextmenu',ev=>ev.preventDefault());
+  parent.appendChild(e);
+}
 function renderBtns(){
   ['liveDot'].forEach(id=>{const ld=document.getElementById(id);if(ld)ld.hidden=!(run&&run.state==='run')});
   if(typeof renderLaps==='function')renderLaps();
@@ -659,7 +684,7 @@ function renderBtns(){
   if(askFinish){$('dockMsg').textContent='記録を終了して保存しますか？';
     mk('保存して終了する','primary',()=>{askFinish=false;clearTimeout(askFinishT);finish()});mk('続ける','',()=>{askFinish=false;clearTimeout(askFinishT);renderBtns()});return}
   const ask=()=>{askFinish=true;clearTimeout(askFinishT);askFinishT=setTimeout(()=>{askFinish=false;renderBtns()},6000);renderBtns()};
-  if(run.state==='run'){mk('一時停止','',pause);mk('終了して保存','',ask)}
+  if(run.state==='run'){mkHold(b,'一時停止',pause);mkHold(b,'終了して保存',ask)}
   else{mk('再開','primary',resume);mk('終了して保存','',ask);mk('破棄','danger',()=>{askDiscard=true;renderBtns()})}
 }
 function renderLive(){
