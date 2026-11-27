@@ -67,6 +67,10 @@ canvas{width:100%;height:180px;border-radius:10px;background:var(--bg);display:b
 /* 記録の操作（スタート・一時停止・終了）は、走る画面とメーター画面で共通の1か所。タブの上に固定 */
 .dock{max-width:560px;margin:0 auto;padding:2px 0 8px}
 .dock[hidden]{display:none}
+/* 操作ボタンは、しばらく触らないと隠れて細い帯だけになる。どこかをタップすると出てくる */
+.dockhandle{display:none;width:100%;padding:6px 10px;font-size:12px;font-weight:600;color:var(--muted);background:transparent;border:1px dashed var(--line);border-radius:999px}
+.dock.collapsed .dockhandle{display:block}
+.dock.collapsed .btns,.dock.collapsed .dockmsg{display:none}
 .dock .btns button{padding:14px 10px;font-size:17px;border-radius:14px}
 .dock .btns button.primary{font-size:18px}
 .dockmsg{font-size:12px;color:var(--warn);text-align:center;margin-top:6px}
@@ -465,7 +469,7 @@ canvas#mPrev{height:170px}
 </div>
 
 <nav class="tabbar" aria-label="画面の切り替え">
-  <div class="dock" id="dock" hidden><div class="btns" id="btns" role="group" aria-label="記録の操作"></div><div class="dockmsg" id="dockMsg" role="status" aria-live="polite"></div></div>
+  <div class="dock" id="dock" hidden><button type="button" class="dockhandle" id="dockHandle" aria-label="操作ボタンを表示">▲ タップで操作ボタンを表示</button><div class="btns" id="btns" role="group" aria-label="記録の操作"></div><div class="dockmsg" id="dockMsg" role="status" aria-live="polite"></div></div>
   <div class="tabs">
     <button class="tab" data-tab="meter"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 17a8.5 8.5 0 1 1 17 0"/><path d="M12 17l4.5-5.5"/><circle cx="12" cy="17" r="1.3"/><path d="M5.8 12.3l1.3.8M12 8.5v1.5M18.2 12.3l-1.3.8"/></svg><span>メーター</span></button>
     <button class="tab" data-tab="run"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M9.5 2.5h5M12 2.5V6M18.5 6.5l1.5-1.5"/></svg><span>走る</span><i class="live" id="liveDot" hidden></i></button>
@@ -656,7 +660,7 @@ function discard(){run=null;del(KEY_CUR);stopWatch();unlock();render()}
 
 let askDiscard=false;
 let askFinish=false, askFinishT=0;
-const APP_VERSION='v12';   // sw.js の VERSION と合わせる
+const APP_VERSION='v13';   // sw.js の VERSION と合わせる
 let swUpdateReady=false;
 function applySwUpdate(){
   if(!swUpdateReady)return;
@@ -667,6 +671,18 @@ function applySwUpdate(){
 /* 走っている間のボタンは「長押し（約0.8秒）」で動く。ポケットの中や腕振りで触れても止まらないように。
    軽く触れただけのときは、長押しで操作することを案内するだけ */
 const HOLD_MS=800;
+/* 操作ボタンの自動の出し入れ。走っている間は5秒、スタート前は8秒触らないと隠れる。
+   一時停止中・確認中・長押し中は隠さない */
+let dockT=0;
+function dockKeepOpen(){return !!(run&&run.state!=='run')||askFinish||askDiscard||!!document.querySelector('#btns .holding')}
+function dockShow(){
+  const d=$('dock');if(!d||d.hidden)return;
+  d.classList.remove('collapsed');clearTimeout(dockT);
+  if(dockKeepOpen())return;
+  dockT=setTimeout(()=>{if(dockKeepOpen()){dockShow();return}
+    if(document.activeElement&&d.contains(document.activeElement))document.activeElement.blur();
+    d.classList.add('collapsed')},run?5000:8000);
+}
 function mkHold(parent,label,fn){
   const e=document.createElement('button');e.type='button';e.className='hold';
   e.innerHTML=`<span>${label}</span><small>長押し</small>`;e.setAttribute('aria-label',label+'（長押しで操作）');
@@ -681,6 +697,7 @@ function mkHold(parent,label,fn){
   parent.appendChild(e);
 }
 function renderBtns(){
+  setTimeout(dockShow,0);
   ['liveDot'].forEach(id=>{const ld=document.getElementById(id);if(ld)ld.hidden=!(run&&run.state==='run')});
   if(typeof renderLaps==='function')renderLaps();
   const b=$('btns'); b.innerHTML='';$('dockMsg').textContent='';
@@ -1934,6 +1951,12 @@ $('expFile').onclick=exportToFile;
 $('expShare').onclick=exportByShare;
 $('pMake').onclick=makePlan;
 $('cpAdd').onclick=()=>addCpRow();
+// 隠れているときは「タップが終わってから」出す（押した瞬間に出すと、下の方のボタンへのタップを横取りしてしまうため）
+document.addEventListener('click',()=>{const d=$('dock');if(d&&!d.hidden&&d.classList.contains('collapsed'))dockShow()},true);
+// 出ているときは、触るたびに隠れるまでの時間をのばす
+document.addEventListener('pointerdown',()=>{const d=$('dock');if(d&&!d.hidden&&!d.classList.contains('collapsed'))dockShow()},true);
+document.addEventListener('keydown',()=>dockShow(),true);
+$('dockHandle').onclick=()=>dockShow();
 $('mVoice').onchange=e=>{$('gVoice').checked=e.target.checked;$('gVoice').onchange({target:$('gVoice')})};
 $('mMinus').onclick=()=>{adjTarget(-5);renderMeters()};$('mPlus').onclick=()=>{adjTarget(5);renderMeters()};
 $('cpLossM').onclick=()=>setLoss(getLoss()-30);$('cpLossP').onclick=()=>setLoss(getLoss()+30);
@@ -1965,7 +1988,7 @@ function showView(v){
   document.querySelectorAll('.tab').forEach(t=>{if(t.dataset.tab===v)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current')});
   $('viewTitle').textContent=VIEWS[v];
   $('gpsChip').hidden=ART||(v!=='run'&&v!=='meter');
-  const dockOn=!ART&&(v==='run'||v==='meter');$('dock').hidden=!dockOn;document.body.classList.toggle('dock-on',dockOn);
+  const dockOn=!ART&&(v==='run'||v==='meter');$('dock').hidden=!dockOn;document.body.classList.toggle('dock-on',dockOn);if(dockOn)dockShow();
   try{localStorage.setItem(KEY_VIEW,v)}catch(e){}
   try{window.history.replaceState(null,'','#'+v)}catch(e){}  // history はこのアプリでは走行記録の名前なので window. を付ける
   if(changed)window.scrollTo(0,0);
